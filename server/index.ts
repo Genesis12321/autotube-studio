@@ -40,7 +40,7 @@ app.post('/api/jobs', (req, res) => {
     format: FORMATS.includes(body.format as VideoFormat) ? (body.format as VideoFormat) : 'vertical',
     voice: VOICES.includes(body.voice as VoiceId) ? (body.voice as VoiceId) : 'slt',
     tone: body.tone?.trim() || 'divulgativo',
-    targetDuration: Math.min(180, Math.max(20, Number(body.targetDuration) || 45)),
+    targetDuration: Math.min(600, Math.max(20, Number(body.targetDuration) || 45)),
   }
   res.status(201).json(createJob(input))
 })

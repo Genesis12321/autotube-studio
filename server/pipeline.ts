@@ -111,17 +111,25 @@ const runJob = async (job: Job): Promise<void> => {
     finishStep(job, 'voice', `Locución lista (${job.input.voice})`)
 
     update(job, 'visuals', { status: 'running', progress: 5, detail: 'Buscando imágenes...' })
-    const images = await Promise.all(
-      scenes.map((scene) =>
-        fetchStockImage(
-          scene.keywords,
-          job.input.topic,
-          scene.index,
-          workDir,
-          job.input.format === 'vertical' ? 'portrait' : 'landscape',
-        ),
-      ),
-    )
+    // En vídeos largos hay decenas de escenas: se busca por lotes para no saturar las APIs.
+    const orientation = job.input.format === 'vertical' ? 'portrait' : 'landscape'
+    const images: (string | null)[] = []
+    const batchSize = 6
+    for (let i = 0; i < scenes.length; i += batchSize) {
+      const batch = scenes.slice(i, i + batchSize)
+      images.push(
+        ...(await Promise.all(
+          batch.map((scene) =>
+            fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation),
+          ),
+        )),
+      )
+      update(job, 'visuals', {
+        status: 'running',
+        progress: Math.round((images.length / scenes.length) * 100),
+        detail: `Imagen ${images.length}/${scenes.length}`,
+      })
+    }
     const found = images.filter(Boolean).length
     finishStep(job, 'visuals', `${found}/${scenes.length} imágenes de stock encontradas`)
 

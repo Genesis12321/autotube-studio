@@ -10,7 +10,11 @@ const VOICES: { id: VoiceId; label: string; desc: string }[] = [
 ]
 
 const TONES = ['divulgativo', 'motivacional', 'misterioso', 'humor', 'noticias']
-const DURATIONS = [30, 45, 60, 90]
+const SHORT_DURATIONS = [30, 45, 60, 90]
+const LONG_DURATIONS = [300, 480, 540, 600]
+
+const durationLabel = (seconds: number): string =>
+  seconds < 120 ? `${seconds}s` : `${Math.round(seconds / 60)} min`
 
 type Props = {
   busy: boolean
@@ -121,10 +125,10 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
 
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Duración objetivo · <span className="text-brand-400">{targetDuration}s</span>
+            Duración objetivo · <span className="text-brand-400">{durationLabel(targetDuration)}</span>
           </p>
-          <div className="flex gap-2">
-            {DURATIONS.map((d) => (
+          <div className="flex flex-wrap gap-2">
+            {[...SHORT_DURATIONS, ...LONG_DURATIONS].map((d) => (
               <button
                 key={d}
                 type="button"
@@ -135,10 +139,15 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
                     : 'border-white/10 bg-ink-700 text-slate-400'
                 }`}
               >
-                {d}s
+                {durationLabel(d)}
               </button>
             ))}
           </div>
+          {targetDuration >= 300 && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Los vídeos largos tardan varios minutos en renderizarse; puedes seguir el progreso aquí mismo.
+            </p>
+          )}
         </div>
       </section>
 
