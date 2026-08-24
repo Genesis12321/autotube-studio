@@ -22,16 +22,19 @@ export const useJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([])
   const [connected, setConnected] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
+  const lastEventAt = useRef(0)
 
   useEffect(() => {
     const source = new EventSource('/api/stream')
     sourceRef.current = source
 
     source.addEventListener('snapshot', (event) => {
+      lastEventAt.current = Date.now()
       setJobs(JSON.parse((event as MessageEvent<string>).data) as Job[])
       setConnected(true)
     })
     source.addEventListener('job', (event) => {
+      lastEventAt.current = Date.now()
       const job = JSON.parse((event as MessageEvent<string>).data) as Job
       setJobs((prev) => {
         const next = prev.filter((j) => j.id !== job.id)
@@ -41,7 +44,25 @@ export const useJobs = () => {
     source.onerror = () => setConnected(false)
     source.onopen = () => setConnected(true)
 
-    return () => source.close()
+    // Algunos proxies (túneles, CDN) almacenan el SSE en búfer: refresco por sondeo.
+    const poll = async () => {
+      if (Date.now() - lastEventAt.current < 5000) return
+      try {
+        const res = await fetch('/api/jobs')
+        if (!res.ok) return
+        setJobs((await res.json()) as Job[])
+        setConnected(true)
+      } catch {
+        setConnected(false)
+      }
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), 2500)
+
+    return () => {
+      clearInterval(timer)
+      source.close()
+    }
   }, [])
 
   return { jobs, connected, setJobs }
