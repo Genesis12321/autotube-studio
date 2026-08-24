@@ -39,13 +39,34 @@ export const probeDuration = async (file: string): Promise<number> => {
   return Number.parseFloat(out) || 0
 }
 
+/** Voces españolas de espeak-ng: [voz, tono, velocidad en palabras/minuto]. */
+const VOICES: Record<VoiceId, [string, number, number]> = {
+  slt: ['es+f3', 62, 145],
+  kal16: ['es', 45, 145],
+  awb: ['es+m3', 30, 140],
+  rms: ['es-419', 42, 145],
+}
+
 export const synthVoice = async (text: string, voice: VoiceId, outFile: string): Promise<number> => {
+  const [espeakVoice, pitch, speed] = VOICES[voice] ?? VOICES.slt
   const textFile = `${outFile}.txt`
-  await writeFile(textFile, text.replace(/["']/g, ''), 'utf8')
+  const rawFile = `${outFile}.raw.wav`
+  await writeFile(textFile, text, 'utf8')
+
+  await run('espeak-ng', [
+    '-v', espeakVoice,
+    '-s', String(speed),
+    '-p', String(pitch),
+    '-g', '8',
+    '-f', textFile,
+    '-w', rawFile,
+  ])
+
+  // Normaliza formato y añade una cola de silencio para que las escenas no se peguen.
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'lavfi',
-    '-i', `flite=textfile=${textFile}:v=${voice}`,
+    '-i', rawFile,
+    '-af', 'apad=pad_dur=0.45,loudnorm=I=-16:TP=-1.5:LRA=11',
     '-ar', '44100', '-ac', '2',
     outFile,
   ])
@@ -70,39 +91,61 @@ const wrap = (text: string, maxChars: number): string => {
 
 export const renderScene = async (
   scene: Scene,
-  opts: { format: VideoFormat; audioFile: string; duration: number; workDir: string; title: string },
+  opts: {
+    format: VideoFormat
+    audioFile: string
+    duration: number
+    workDir: string
+    title: string
+    imageFile?: string | null
+  },
 ): Promise<string> => {
-  const { format, audioFile, duration, workDir, title } = opts
+  const { format, audioFile, duration, workDir, title, imageFile } = opts
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
   const [c0, c1] = PALETTES[scene.index % PALETTES.length]
   const out = path.join(workDir, `scene-${scene.index}.mp4`)
 
   const bodyFile = path.join(workDir, `scene-${scene.index}-body.txt`)
   const headFile = path.join(workDir, `scene-${scene.index}-head.txt`)
-  await writeFile(bodyFile, wrap(scene.narration, format === 'vertical' ? 26 : 44), 'utf8')
-  await writeFile(headFile, scene.index === 0 ? title : scene.heading, 'utf8')
+  await writeFile(bodyFile, wrap(scene.narration, format === 'vertical' ? 30 : 56), 'utf8')
+  await writeFile(headFile, scene.index === 0 ? wrap(title, format === 'vertical' ? 24 : 40) : scene.heading, 'utf8')
 
-  const bodySize = format === 'vertical' ? 58 : 52
-  const headSize = format === 'vertical' ? 44 : 40
+  const bodySize = format === 'vertical' ? 50 : 44
+  const headSize = format === 'vertical' ? 56 : 48
+  const frames = Math.max(2, Math.round(duration * 30))
+
+  // Ken Burns sobre la imagen de stock; degradado animado si no hay imagen.
+  const background = imageFile
+    ? `[0:v]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
+      `zoompan=z='min(1+0.0006*on,1.12)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,` +
+      `format=yuv420p[bg]`
+    : `[0:v]format=yuv420p[bg]`
 
   const filters = [
-    `[0:v]format=yuv420p[bg]`,
-    `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.28:t=fill[dim]`,
-    `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:` +
-      `x=(w-text_w)/2:y=h*0.16:box=1:boxcolor=black@0.45:boxborderw=22[head]`,
-    `[head]drawtext=fontfile=${FONT}:textfile=${bodyFile}:fontsize=${bodySize}:fontcolor=white:line_spacing=16:` +
-      `x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.35:boxborderw=34[txt]`,
+    background,
+    `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@${imageFile ? '0.42' : '0.28'}:t=fill[dim]`,
+    `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:line_spacing=12:` +
+      `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.45:boxborderw=22[head]`,
+    `[head]drawtext=fontfile=${FONT}:textfile=${bodyFile}:fontsize=${bodySize}:fontcolor=white:line_spacing=14:` +
+      `x=(w-text_w)/2:y=h*0.68-text_h/2:box=1:boxcolor=black@0.45:boxborderw=28[txt]`,
     `[txt]fade=t=in:st=0:d=0.35,fade=t=out:st=${Math.max(0.1, duration - 0.35).toFixed(2)}:d=0.35[v]`,
   ].join(';')
 
+  const videoInput = imageFile
+    ? ['-loop', '1', '-t', duration.toFixed(2), '-i', imageFile]
+    : [
+        '-f', 'lavfi',
+        '-i', `gradients=s=${w}x${h}:c0=${c0}:c1=${c1}:d=${duration.toFixed(2)}:speed=0.02:r=30`,
+      ]
+
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'lavfi',
-    '-i', `gradients=s=${w}x${h}:c0=${c0}:c1=${c1}:d=${duration.toFixed(2)}:speed=0.02:r=30`,
+    ...videoInput,
     '-i', audioFile,
     '-filter_complex', filters,
     '-map', '[v]', '-map', '1:a',
     '-t', duration.toFixed(2),
+    '-r', '30',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '128k',
     out,

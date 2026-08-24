@@ -4,6 +4,7 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { generateScript } from './script'
 import { concatAudio, concatScenes, ensureDir, probeDuration, renderScene, run, synthVoice } from './render'
+import { fetchStockImage } from './stock'
 import type { Job, JobInput, StepId } from './types'
 
 export const DATA_DIR = path.resolve(process.cwd(), 'data')
@@ -18,7 +19,7 @@ const jobs = new Map<string, Job>()
 const STEP_LABELS: Record<StepId, string> = {
   script: 'Generando guión',
   voice: 'Creando locución (TTS)',
-  visuals: 'Buscando visuales y montando escenas',
+  visuals: 'Buscando clips/imágenes de stock',
   render: 'Renderizando vídeo final',
 }
 
@@ -96,7 +97,7 @@ const runJob = async (job: Job): Promise<void> => {
     const audioFiles: string[] = []
     for (const scene of scenes) {
       const wav = path.join(workDir, `scene-${scene.index}.wav`)
-      scene.durationSec = Math.max(1.6, (await synthVoice(scene.narration, job.input.voice, wav)) + 0.35)
+      scene.durationSec = Math.max(1.6, (await synthVoice(scene.narration, job.input.voice, wav)) + 0.1)
       audioFiles.push(wav)
       update(job, 'voice', {
         status: 'running',
@@ -109,7 +110,22 @@ const runJob = async (job: Job): Promise<void> => {
     job.audioUrl = `/media/${job.id}/voiceover.mp3`
     finishStep(job, 'voice', `Locución lista (${job.input.voice})`)
 
-    update(job, 'visuals', { status: 'running', progress: 5, detail: 'Componiendo escenas...' })
+    update(job, 'visuals', { status: 'running', progress: 5, detail: 'Buscando imágenes...' })
+    const images = await Promise.all(
+      scenes.map((scene) =>
+        fetchStockImage(
+          scene.keywords,
+          job.input.topic,
+          scene.index,
+          workDir,
+          job.input.format === 'vertical' ? 'portrait' : 'landscape',
+        ),
+      ),
+    )
+    const found = images.filter(Boolean).length
+    finishStep(job, 'visuals', `${found}/${scenes.length} imágenes de stock encontradas`)
+
+    update(job, 'render', { status: 'running', progress: 5, detail: 'Componiendo escenas...' })
     const sceneFiles: string[] = []
     for (const scene of scenes) {
       const file = await renderScene(scene, {
@@ -118,17 +134,17 @@ const runJob = async (job: Job): Promise<void> => {
         duration: scene.durationSec ?? 3,
         workDir,
         title: job.title ?? job.input.topic,
+        imageFile: images[scene.index],
       })
       sceneFiles.push(file)
-      update(job, 'visuals', {
+      update(job, 'render', {
         status: 'running',
-        progress: Math.round(((scene.index + 1) / scenes.length) * 100),
+        progress: Math.round(((scene.index + 1) / scenes.length) * 80),
         detail: `Escena ${scene.index + 1}/${scenes.length}`,
       })
     }
-    finishStep(job, 'visuals', `${sceneFiles.length} clips generados`)
 
-    update(job, 'render', { status: 'running', progress: 40, detail: 'Uniendo pistas de vídeo y audio...' })
+    update(job, 'render', { status: 'running', progress: 90, detail: 'Uniendo escenas...' })
     const finalFile = path.join(workDir, 'final.mp4')
     await concatScenes(sceneFiles, workDir, finalFile)
     await run('ffmpeg', [

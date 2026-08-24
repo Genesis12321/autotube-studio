@@ -1,27 +1,38 @@
 import type { JobInput, Scene } from './types'
 
+/** Palabras por segundo del locutor TTS en español (espeak-ng a 150 ppm). */
+export const WORDS_PER_SECOND = 2.4
+
 const HOOKS = [
   'Esto es lo que nadie te cuenta sobre',
-  'En 60 segundos vas a entender',
-  'Presta atención, porque esto cambia todo sobre',
-  'La mayoría se equivoca cuando habla de',
+  'En segundos vas a entender',
+  'Atención: esto cambia todo sobre',
+  'Casi todo el mundo se equivoca con',
 ]
 
 const BODY = [
-  'El primer punto clave es entender de dónde viene todo. Sin ese contexto, cualquier consejo se queda en la superficie.',
-  'Aquí está el detalle que marca la diferencia: no se trata de hacer más, sino de hacer lo correcto en el momento correcto.',
-  'Un error muy común es copiar lo que funciona a otros sin adaptarlo. Los resultados dependen del contexto, no de la fórmula.',
-  'Los datos son claros: quienes aplican esto de forma constante durante unas semanas ven un cambio real y medible.',
-  'Y si crees que es demasiado complejo, empieza por lo mínimo viable. La constancia siempre gana a la intensidad.',
+  'La clave no es hacer más, sino hacer lo correcto.',
+  'El error típico es copiar fórmulas sin adaptarlas.',
+  'Con constancia, el cambio se nota en pocas semanas.',
+  'Empieza por lo mínimo: un paso pequeño hoy.',
+  'Mide el resultado y ajusta sobre la marcha.',
 ]
 
 const CTA = [
-  'Si te ha servido, sigue el canal: cada semana subimos algo nuevo.',
-  'Guarda este vídeo, porque vas a querer volver a verlo.',
-  'Cuéntame en comentarios qué parte vas a aplicar primero.',
+  'Si te sirve, sigue el canal.',
+  'Guarda el vídeo y aplícalo hoy.',
+  'Cuéntame en comentarios por dónde empiezas.',
 ]
 
 const pick = <T>(arr: T[], i: number): T => arr[i % arr.length]
+
+/** Recorta la narración al presupuesto de palabras que cabe en la duración objetivo. */
+const trimWords = (text: string, maxWords: number): string => {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length <= maxWords) return text.trim()
+  const cut = words.slice(0, Math.max(4, maxWords)).join(' ').replace(/[,;:]$/, '')
+  return /[.!?]$/.test(cut) ? cut : `${cut}.`
+}
 
 const keywordsFrom = (text: string): string[] =>
   Array.from(
@@ -35,7 +46,7 @@ const keywordsFrom = (text: string): string[] =>
   ).slice(0, 4)
 
 /** Splits a user-provided script into scenes of roughly equal narration length. */
-const scenesFromScript = (script: string, sceneCount: number): Scene[] => {
+const scenesFromScript = (script: string, sceneCount: number, wordsPerScene: number): Scene[] => {
   const sentences = script
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.trim())
@@ -48,35 +59,53 @@ const scenesFromScript = (script: string, sceneCount: number): Scene[] => {
   return chunks.slice(0, sceneCount).map((narration, index) => ({
     index,
     heading: index === 0 ? 'Gancho' : index === chunks.length - 1 ? 'Cierre' : `Punto ${index}`,
-    narration,
+    narration: trimWords(narration, wordsPerScene),
     keywords: keywordsFrom(narration),
   }))
 }
 
 const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
-  const sceneCount = Math.max(3, Math.min(8, Math.round(input.targetDuration / 12)))
+  const sceneCount = Math.max(3, Math.min(6, Math.round(input.targetDuration / 10)))
+  // Deja margen para las transiciones: ~88% del tiempo objetivo es locución.
+  const wordsPerScene = Math.max(6, Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.88) / sceneCount))
+
   if (input.script?.trim()) {
-    return { title: input.topic || 'Vídeo sin título', scenes: scenesFromScript(input.script, sceneCount) }
+    return {
+      title: input.topic || 'Vídeo sin título',
+      scenes: scenesFromScript(input.script, sceneCount, wordsPerScene),
+    }
   }
+
   const topic = input.topic.trim()
-  const scenes: Scene[] = []
-  scenes.push({
-    index: 0,
-    heading: 'Gancho',
-    narration: `${pick(HOOKS, topic.length)} ${topic}.`,
-    keywords: keywordsFrom(topic),
-  })
+  const scenes: Scene[] = [
+    {
+      index: 0,
+      heading: 'Gancho',
+      narration: trimWords(`${pick(HOOKS, topic.length)} ${topic}.`, wordsPerScene),
+      keywords: keywordsFrom(topic),
+    },
+  ]
+  let cursor = topic.length
   for (let i = 1; i < sceneCount - 1; i += 1) {
-    const narration = `${pick(BODY, i + topic.length)} Aplicado a ${topic}, esto significa dar un paso concreto hoy mismo.`
-    scenes.push({ index: i, heading: `Punto ${i}`, narration, keywords: keywordsFrom(narration) })
+    // Encadena frases sin repetirlas hasta acercarse al presupuesto de palabras.
+    let narration = pick(BODY, cursor++)
+    while (narration.split(/\s+/).length < wordsPerScene * 0.7 && cursor < topic.length + BODY.length) {
+      narration = `${narration} ${pick(BODY, cursor++)}`
+    }
+    scenes.push({
+      index: i,
+      heading: `Punto ${i}`,
+      narration: trimWords(narration, wordsPerScene),
+      keywords: keywordsFrom(`${topic} ${narration}`),
+    })
   }
   scenes.push({
     index: sceneCount - 1,
     heading: 'Cierre',
-    narration: pick(CTA, topic.length),
+    narration: trimWords(pick(CTA, topic.length), wordsPerScene),
     keywords: keywordsFrom(topic),
   })
-  return { title: `${topic} — explicado en ${input.targetDuration}s`, scenes }
+  return { title: topic, scenes }
 }
 
 const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
@@ -85,7 +114,10 @@ const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ ti
     `Tema: ${input.topic}`,
     input.script?.trim() ? `Guion base del usuario (respétalo): ${input.script}` : '',
     `Tono: ${input.tone}. Formato: ${input.format === 'vertical' ? 'Shorts vertical' : 'horizontal 16:9'}.`,
-    `Duración objetivo: ${input.targetDuration} segundos.`,
+    `Duración objetivo: ${input.targetDuration} segundos leídos en voz alta,`,
+    `así que el guion completo debe tener como máximo ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.88)} palabras`,
+    `repartidas en ${Math.max(3, Math.min(6, Math.round(input.targetDuration / 10)))} escenas. Frases cortas y directas, en español.`,
+    `Incluye en "keywords" 3 términos EN INGLÉS para buscar imágenes de stock que ilustren la escena.`,
     `Devuelve SOLO JSON con la forma {"title": string, "scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
     `La narración debe sonar natural leída en voz alta, sin emojis ni markdown.`,
   ]
@@ -112,7 +144,10 @@ const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ ti
     scenes: parsed.scenes.map((s, index) => ({
       index,
       heading: s.heading,
-      narration: s.narration,
+      narration: trimWords(
+        s.narration,
+        Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.88) / Math.max(1, parsed.scenes.length)),
+      ),
       keywords: s.keywords ?? keywordsFrom(s.narration),
     })),
   }
