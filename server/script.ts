@@ -10,18 +10,19 @@ const HOOKS = [
   'Casi todo el mundo se equivoca con',
 ]
 
+/** Frases del cuerpo parametrizadas con el tema para que la narración no suene genérica. */
 const BODY = [
-  'La clave no es hacer más, sino hacer lo correcto.',
-  'El error típico es copiar fórmulas sin adaptarlas.',
-  'Con constancia, el cambio se nota en pocas semanas.',
-  'Empieza por lo mínimo: un paso pequeño hoy.',
-  'Mide el resultado y ajusta sobre la marcha.',
+  (t: string) => `La mayoría falla con ${t} por buscar resultados rápidos.`,
+  (t: string) => `Con ${t}, lo que manda es la constancia, no la intensidad.`,
+  () => 'Empieza con cinco minutos al día y sube poco a poco.',
+  () => 'Anota tu progreso: lo que se mide, mejora.',
+  (t: string) => `En pocas semanas notarás la diferencia de ${t}.`,
 ]
 
 const CTA = [
-  'Si te sirve, sigue el canal.',
-  'Guarda el vídeo y aplícalo hoy.',
-  'Cuéntame en comentarios por dónde empiezas.',
+  (t: string) => `Prueba hoy con ${t} y cuéntame cómo te va.`,
+  () => 'Guarda el vídeo y aplícalo hoy mismo.',
+  () => 'Si te sirve, sigue el canal para más.',
 ]
 
 const pick = <T>(arr: T[], i: number): T => arr[i % arr.length]
@@ -30,6 +31,19 @@ const pick = <T>(arr: T[], i: number): T => arr[i % arr.length]
 const trimWords = (text: string, maxWords: number): string => {
   const words = text.split(/\s+/).filter(Boolean)
   if (words.length <= maxWords) return text.trim()
+
+  // Recorta por frases completas para no dejar la narración a medias.
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const kept: string[] = []
+  let count = 0
+  for (const sentence of sentences) {
+    const length = sentence.split(/\s+/).filter(Boolean).length
+    if (kept.length > 0 && count + length > maxWords) break
+    kept.push(sentence)
+    count += length
+  }
+  if (kept.length > 1 || count <= maxWords) return kept.join(' ').trim()
+
   const cut = words.slice(0, Math.max(4, maxWords)).join(' ').replace(/[,;:]$/, '')
   return /[.!?]$/.test(cut) ? cut : `${cut}.`
 }
@@ -58,7 +72,7 @@ const scenesFromScript = (script: string, sceneCount: number, wordsPerScene: num
   }
   return chunks.slice(0, sceneCount).map((narration, index) => ({
     index,
-    heading: index === 0 ? 'Gancho' : index === chunks.length - 1 ? 'Cierre' : `Punto ${index}`,
+    heading: index === 0 ? 'Gancho' : index === chunks.length - 1 ? 'Cierre' : `Clave ${index}`,
     narration: trimWords(narration, wordsPerScene),
     keywords: keywordsFrom(narration),
   }))
@@ -77,24 +91,25 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   }
 
   const topic = input.topic.trim()
+  const subject = topic.charAt(0).toLowerCase() + topic.slice(1)
   const scenes: Scene[] = [
     {
       index: 0,
       heading: 'Gancho',
-      narration: trimWords(`${pick(HOOKS, topic.length)} ${topic}.`, wordsPerScene),
+      narration: trimWords(`${pick(HOOKS, topic.length)} ${subject}.`, wordsPerScene),
       keywords: keywordsFrom(topic),
     },
   ]
   let cursor = topic.length
   for (let i = 1; i < sceneCount - 1; i += 1) {
     // Encadena frases sin repetirlas hasta acercarse al presupuesto de palabras.
-    let narration = pick(BODY, cursor++)
+    let narration = pick(BODY, cursor++)(subject)
     while (narration.split(/\s+/).length < wordsPerScene * 0.7 && cursor < topic.length + BODY.length) {
-      narration = `${narration} ${pick(BODY, cursor++)}`
+      narration = `${narration} ${pick(BODY, cursor++)(subject)}`
     }
     scenes.push({
       index: i,
-      heading: `Punto ${i}`,
+      heading: `Clave ${i}`,
       narration: trimWords(narration, wordsPerScene),
       keywords: keywordsFrom(`${topic} ${narration}`),
     })
@@ -102,7 +117,7 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   scenes.push({
     index: sceneCount - 1,
     heading: 'Cierre',
-    narration: trimWords(pick(CTA, topic.length), wordsPerScene),
+    narration: trimWords(pick(CTA, topic.length)(subject), wordsPerScene),
     keywords: keywordsFrom(topic),
   })
   return { title: topic, scenes }

@@ -123,11 +123,11 @@ export const renderScene = async (
 
   const filters = [
     background,
-    `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@${imageFile ? '0.42' : '0.28'}:t=fill[dim]`,
+    `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.28:t=fill[dim]`,
     `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:line_spacing=12:` +
-      `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.45:boxborderw=22[head]`,
+      `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.55:boxborderw=22[head]`,
     `[head]drawtext=fontfile=${FONT}:textfile=${bodyFile}:fontsize=${bodySize}:fontcolor=white:line_spacing=14:` +
-      `x=(w-text_w)/2:y=h*0.68-text_h/2:box=1:boxcolor=black@0.45:boxborderw=28[txt]`,
+      `x=(w-text_w)/2:y=h*0.68-text_h/2:box=1:boxcolor=black@0.55:boxborderw=28[txt]`,
     `[txt]fade=t=in:st=0:d=0.35,fade=t=out:st=${Math.max(0.1, duration - 0.35).toFixed(2)}:d=0.35[v]`,
   ].join(';')
 
