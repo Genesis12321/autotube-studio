@@ -41,36 +41,74 @@ export const probeDuration = async (file: string): Promise<number> => {
 
 /** Voces españolas de espeak-ng: [voz, tono, velocidad en palabras/minuto]. */
 const VOICES: Record<VoiceId, [string, number, number]> = {
-  slt: ['es+f3', 62, 145],
-  kal16: ['es', 45, 145],
-  awb: ['es+m3', 30, 140],
-  rms: ['es-419', 42, 145],
+  slt: ['es+f3', 62, 140],
+  kal16: ['es', 45, 140],
+  awb: ['es+m3', 30, 136],
+  rms: ['es-419', 42, 140],
 }
 
 export const synthVoice = async (text: string, voice: VoiceId, outFile: string): Promise<number> => {
   const [espeakVoice, pitch, speed] = VOICES[voice] ?? VOICES.slt
   const textFile = `${outFile}.txt`
   const rawFile = `${outFile}.raw.wav`
+  const padFile = `${outFile}.pad.wav`
   await writeFile(textFile, text, 'utf8')
 
   await run('espeak-ng', [
     '-v', espeakVoice,
     '-s', String(speed),
     '-p', String(pitch),
-    '-g', '8',
+    '-g', '1',
     '-f', textFile,
     '-w', rawFile,
   ])
 
-  // Normaliza formato y añade una cola de silencio para que las escenas no se peguen.
+  // Formato uniforme, ganancia fija (la normalización se hace una vez sobre la pista completa)
+  // y una cola corta de silencio para respirar entre escenas.
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', rawFile,
-    '-af', 'apad=pad_dur=0.45,loudnorm=I=-16:TP=-1.5:LRA=11',
-    '-ar', '44100', '-ac', '2',
+    '-af', 'volume=2.0,apad=pad_dur=0.22,apad=whole_dur=1.6,afade=t=in:st=0:d=0.02',
+    '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le',
+    padFile,
+  ])
+
+  // Se ajusta a un múltiplo exacto de frame (30 fps) para que la pista continua no derive
+  // respecto al vídeo a lo largo de decenas de escenas.
+  const target = Math.ceil((await probeDuration(padFile)) * 30 - 0.001) / 30
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', padFile,
+    '-af', `apad=whole_dur=${target.toFixed(4)},atrim=0:${target.toFixed(4)}`,
+    '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le',
     outFile,
   ])
-  return probeDuration(outFile)
+  return target
+}
+
+/** Une las locuciones en una sola pista continua y la normaliza una única vez. */
+export const buildVoiceTrack = async (files: string[], workDir: string, outFile: string): Promise<void> => {
+  const listFile = path.join(workDir, 'concat-voice.txt')
+  await writeFile(listFile, files.map((f) => `file '${f}'`).join('\n'), 'utf8')
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'concat', '-safe', '0', '-i', listFile,
+    '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+    '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le',
+    outFile,
+  ])
+}
+
+/** Multiplexa el vídeo mudo ya concatenado con la pista de voz continua. */
+export const muxVoice = async (videoFile: string, audioFile: string, outFile: string): Promise<void> => {
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', videoFile, '-i', audioFile,
+    '-map', '0:v:0', '-map', '1:a:0',
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k',
+    '-shortest', '-movflags', '+faststart',
+    outFile,
+  ])
 }
 
 const wrap = (text: string, maxChars: number): string => {
@@ -93,14 +131,15 @@ export const renderScene = async (
   scene: Scene,
   opts: {
     format: VideoFormat
-    audioFile: string
     duration: number
     workDir: string
     title: string
     imageFile?: string | null
+    fadeIn?: boolean
+    fadeOut?: boolean
   },
 ): Promise<string> => {
-  const { format, audioFile, duration, workDir, title, imageFile } = opts
+  const { format, duration, workDir, title, imageFile, fadeIn, fadeOut } = opts
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
   const [c0, c1] = PALETTES[scene.index % PALETTES.length]
   const out = path.join(workDir, `scene-${scene.index}.mp4`)
@@ -128,7 +167,13 @@ export const renderScene = async (
       `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.55:boxborderw=22[head]`,
     `[head]drawtext=fontfile=${FONT}:textfile=${bodyFile}:fontsize=${bodySize}:fontcolor=white:line_spacing=14:` +
       `x=(w-text_w)/2:y=h*0.68-text_h/2:box=1:boxcolor=black@0.55:boxborderw=28[txt]`,
-    `[txt]fade=t=in:st=0:d=0.35,fade=t=out:st=${Math.max(0.1, duration - 0.35).toFixed(2)}:d=0.35[v]`,
+    // Solo se funde a negro al principio y al final del vídeo: entre escenas el corte es directo.
+    `[txt]${[
+      fadeIn ? 'fade=t=in:st=0:d=0.4' : null,
+      fadeOut ? `fade=t=out:st=${Math.max(0.1, duration - 0.4).toFixed(2)}:d=0.4` : null,
+    ]
+      .filter(Boolean)
+      .join(',') || 'null'}[v]`,
   ].join(';')
 
   const videoInput = imageFile
@@ -141,13 +186,11 @@ export const renderScene = async (
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     ...videoInput,
-    '-i', audioFile,
     '-filter_complex', filters,
-    '-map', '[v]', '-map', '1:a',
+    '-map', '[v]', '-an',
     '-t', duration.toFixed(2),
     '-r', '30',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '128k',
     out,
   ])
   return out
@@ -164,12 +207,10 @@ export const concatScenes = async (files: string[], workDir: string, outFile: st
   ])
 }
 
-export const concatAudio = async (files: string[], workDir: string, outFile: string): Promise<void> => {
-  const listFile = path.join(workDir, 'concat-audio.txt')
-  await writeFile(listFile, files.map((f) => `file '${f}'`).join('\n'), 'utf8')
+export const encodeMp3 = async (inFile: string, outFile: string): Promise<void> => {
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'concat', '-safe', '0', '-i', listFile,
+    '-i', inFile,
     '-c:a', 'libmp3lame', '-q:a', '4',
     outFile,
   ])

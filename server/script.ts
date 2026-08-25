@@ -1,7 +1,7 @@
 import type { JobInput, Scene } from './types'
 
 /** Palabras por segundo medidas en la locución real (espeak-ng en español con pausas). */
-export const WORDS_PER_SECOND = 1.6
+export const WORDS_PER_SECOND = 1.95
 
 const HOOKS = [
   'Esto es lo que nadie te cuenta sobre',
@@ -133,22 +133,28 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
 
   const topic = input.topic.trim()
   const subject = topic.charAt(0).toLowerCase() + topic.slice(1)
+  let cursor = topic.length
+
+  // Encadena frases sin repetirlas hasta acercarse al presupuesto de palabras de la escena.
+  const expand = (start: string): string => {
+    const limit = cursor + BODY.length
+    let narration = start
+    while (narration.split(/\s+/).length < wordsPerScene && cursor < limit) {
+      narration = `${narration} ${pick(BODY, cursor++)(subject)}`
+    }
+    return narration
+  }
+
   const scenes: Scene[] = [
     {
       index: 0,
       heading: 'Gancho',
-      narration: trimWords(`${pick(HOOKS, topic.length)} ${subject}.`, wordsPerScene),
+      narration: trimWords(expand(`${pick(HOOKS, topic.length)} ${subject}.`), maxWordsPerScene),
       keywords: keywordsFrom(topic),
     },
   ]
-  let cursor = topic.length
   for (let i = 1; i < sceneCount - 1; i += 1) {
-    // Encadena frases sin repetirlas hasta acercarse al presupuesto de palabras.
-    const limit = cursor + BODY.length
-    let narration = pick(BODY, cursor++)(subject)
-    while (narration.split(/\s+/).length < wordsPerScene && cursor < limit) {
-      narration = `${narration} ${pick(BODY, cursor++)(subject)}`
-    }
+    const narration = expand(pick(BODY, cursor++)(subject))
     scenes.push({
       index: i,
       heading: `Clave ${i}`,
@@ -159,7 +165,7 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   scenes.push({
     index: sceneCount - 1,
     heading: 'Cierre',
-    narration: trimWords(pick(CTA, topic.length)(subject), wordsPerScene),
+    narration: trimWords(expand(pick(CTA, topic.length)(subject)), maxWordsPerScene),
     keywords: keywordsFrom(topic),
   })
   return { title: topic, scenes }

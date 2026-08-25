@@ -3,7 +3,17 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { generateScript } from './script'
-import { concatAudio, concatScenes, ensureDir, probeDuration, renderScene, run, synthVoice } from './render'
+import {
+  buildVoiceTrack,
+  concatScenes,
+  encodeMp3,
+  ensureDir,
+  muxVoice,
+  probeDuration,
+  renderScene,
+  run,
+  synthVoice,
+} from './render'
 import { fetchStockImage } from './stock'
 import type { Job, JobInput, StepId } from './types'
 
@@ -97,7 +107,8 @@ const runJob = async (job: Job): Promise<void> => {
     const audioFiles: string[] = []
     for (const scene of scenes) {
       const wav = path.join(workDir, `scene-${scene.index}.wav`)
-      scene.durationSec = Math.max(1.6, (await synthVoice(scene.narration, job.input.voice, wav)) + 0.1)
+      // La escena dura exactamente lo que su locución para que la pista continua quede sincronizada.
+      scene.durationSec = await synthVoice(scene.narration, job.input.voice, wav)
       audioFiles.push(wav)
       update(job, 'voice', {
         status: 'running',
@@ -105,8 +116,10 @@ const runJob = async (job: Job): Promise<void> => {
         detail: `Escena ${scene.index + 1}/${scenes.length}`,
       })
     }
-    const previewAudio = path.join(workDir, 'voiceover.mp3')
-    await concatAudio(audioFiles, workDir, previewAudio)
+    // Una sola pista continua evita los cortes y los saltos de volumen entre escenas.
+    const voiceTrack = path.join(workDir, 'voiceover.wav')
+    await buildVoiceTrack(audioFiles, workDir, voiceTrack)
+    await encodeMp3(voiceTrack, path.join(workDir, 'voiceover.mp3'))
     job.audioUrl = `/media/${job.id}/voiceover.mp3`
     finishStep(job, 'voice', `Locución lista (${job.input.voice})`)
 
@@ -138,11 +151,12 @@ const runJob = async (job: Job): Promise<void> => {
     for (const scene of scenes) {
       const file = await renderScene(scene, {
         format: job.input.format,
-        audioFile: audioFiles[scene.index],
         duration: scene.durationSec ?? 3,
         workDir,
         title: job.title ?? job.input.topic,
         imageFile: images[scene.index],
+        fadeIn: scene.index === 0,
+        fadeOut: scene.index === scenes.length - 1,
       })
       sceneFiles.push(file)
       update(job, 'render', {
@@ -154,7 +168,9 @@ const runJob = async (job: Job): Promise<void> => {
 
     update(job, 'render', { status: 'running', progress: 90, detail: 'Uniendo escenas...' })
     const finalFile = path.join(workDir, 'final.mp4')
-    await concatScenes(sceneFiles, workDir, finalFile)
+    const silentFile = path.join(workDir, 'silent.mp4')
+    await concatScenes(sceneFiles, workDir, silentFile)
+    await muxVoice(silentFile, voiceTrack, finalFile)
     await run('ffmpeg', [
       '-hide_banner', '-loglevel', 'error', '-y',
       '-ss', '0.8', '-i', finalFile, '-frames:v', '1',
