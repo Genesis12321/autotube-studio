@@ -3,6 +3,7 @@ import express from 'express'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs } from './pipeline'
+import { piperModelFor } from './render'
 import type { JobInput, VideoFormat, VoiceId } from './types'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -14,8 +15,13 @@ app.use(cors())
 app.use(express.json({ limit: '1mb' }))
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }))
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, aiScript: Boolean(process.env.OPENAI_API_KEY), voices: VOICES })
+app.get('/api/health', async (_req, res) => {
+  res.json({
+    ok: true,
+    aiScript: Boolean(process.env.OPENAI_API_KEY),
+    tts: (await piperModelFor('slt')) ? 'piper' : 'espeak-ng',
+    voices: VOICES,
+  })
 })
 
 app.get('/api/jobs', (_req, res) => {

@@ -1,7 +1,7 @@
 import type { JobInput, Scene } from './types'
 
-/** Palabras por segundo medidas en la locución real (espeak-ng en español con pausas). */
-export const WORDS_PER_SECOND = 1.95
+/** Palabras por segundo medidas en la locución real (Piper en español, con pausas entre frases). */
+export const WORDS_PER_SECOND = 2.55
 
 const HOOKS = [
   'Esto es lo que nadie te cuenta sobre',
@@ -119,10 +119,9 @@ export const sceneCountFor = (targetDuration: number): number =>
 
 const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   const sceneCount = sceneCountFor(input.targetDuration)
-  // El TTS pierde algo de ritmo con las pausas: se pide ~5% de texto extra.
-  const wordsPerScene = Math.max(6, Math.floor((input.targetDuration * WORDS_PER_SECOND * 1.05) / sceneCount))
-  // Tolerancia para cerrar la última frase sin quedarse corto de tiempo.
-  const maxWordsPerScene = Math.round(wordsPerScene * 1.2)
+  const wordsPerScene = Math.max(6, Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.95) / sceneCount))
+  // Tope holgado: las frases ya se encadenan hasta el presupuesto, así el recorte no las mutila.
+  const maxWordsPerScene = Math.round(wordsPerScene * 1.35)
 
   if (input.script?.trim()) {
     return {

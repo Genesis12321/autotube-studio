@@ -3,10 +3,10 @@ import { Loader2, Smartphone, Monitor, Sparkles, Wand2 } from 'lucide-react'
 import type { JobInput, VideoFormat, VoiceId } from '../../server/types'
 
 const VOICES: { id: VoiceId; label: string; desc: string }[] = [
-  { id: 'slt', label: 'Aura', desc: 'Femenina · clara' },
-  { id: 'kal16', label: 'Nova', desc: 'Masculina · neutra' },
-  { id: 'awb', label: 'Orion', desc: 'Masculina · grave' },
-  { id: 'rms', label: 'Vega', desc: 'Masculina · narrador' },
+  { id: 'slt', label: 'Aura', desc: 'Femenina · España' },
+  { id: 'kal16', label: 'Nova', desc: 'Masculina · España' },
+  { id: 'awb', label: 'Orion', desc: 'Masculina · México' },
+  { id: 'rms', label: 'Vega', desc: 'Femenina · Argentina' },
 ]
 
 const TONES = ['divulgativo', 'motivacional', 'misterioso', 'humor', 'noticias']

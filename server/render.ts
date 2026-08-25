@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Scene, VideoFormat, VoiceId } from './types'
 
@@ -39,36 +39,67 @@ export const probeDuration = async (file: string): Promise<number> => {
   return Number.parseFloat(out) || 0
 }
 
-/** Voces españolas de espeak-ng: [voz, tono, velocidad en palabras/minuto]. */
-const VOICES: Record<VoiceId, [string, number, number]> = {
-  slt: ['es+f3', 62, 140],
-  kal16: ['es', 45, 140],
-  awb: ['es+m3', 30, 136],
-  rms: ['es-419', 42, 140],
+/** Voces neuronales de Piper (español) con su equivalente robótico de espeak-ng como respaldo. */
+const VOICES: Record<VoiceId, { piper: string; speaker?: string; espeak: [string, number, number] }> = {
+  slt: { piper: 'es_ES-sharvard-medium', speaker: '1', espeak: ['es+f3', 62, 140] },
+  kal16: { piper: 'es_ES-davefx-medium', espeak: ['es', 45, 140] },
+  awb: { piper: 'es_MX-claude-high', espeak: ['es+m3', 30, 136] },
+  rms: { piper: 'es_AR-daniela-high', espeak: ['es-419', 42, 140] },
+}
+
+const PIPER_BIN = process.env.PIPER_BIN ?? path.join(process.env.HOME ?? '/home/ubuntu', 'piper-venv/bin/python')
+const PIPER_VOICES = process.env.PIPER_VOICES_DIR ?? path.join(process.env.HOME ?? '/home/ubuntu', 'piper-voices')
+/** Alarga los fonemas: 1.0 suena acelerado para narración. */
+const PIPER_LENGTH_SCALE = '1.12'
+
+const exists = async (file: string): Promise<boolean> =>
+  access(file).then(
+    () => true,
+    () => false,
+  )
+
+export const piperModelFor = async (voice: VoiceId): Promise<string | null> => {
+  const model = path.join(PIPER_VOICES, `${(VOICES[voice] ?? VOICES.slt).piper}.onnx`)
+  return (await exists(PIPER_BIN)) && (await exists(model)) ? model : null
 }
 
 export const synthVoice = async (text: string, voice: VoiceId, outFile: string): Promise<number> => {
-  const [espeakVoice, pitch, speed] = VOICES[voice] ?? VOICES.slt
   const textFile = `${outFile}.txt`
   const rawFile = `${outFile}.raw.wav`
   const padFile = `${outFile}.pad.wav`
   await writeFile(textFile, text, 'utf8')
 
-  await run('espeak-ng', [
-    '-v', espeakVoice,
-    '-s', String(speed),
-    '-p', String(pitch),
-    '-g', '1',
-    '-f', textFile,
-    '-w', rawFile,
-  ])
+  const config = VOICES[voice] ?? VOICES.slt
+  const model = await piperModelFor(voice)
+  if (model) {
+    const speaker = config.speaker
+    await run(PIPER_BIN, [
+      '-m', 'piper',
+      '--model', model,
+      '--input-file', textFile,
+      '--output-file', rawFile,
+      '--length-scale', PIPER_LENGTH_SCALE,
+      '--sentence-silence', '0.25',
+      ...(speaker ? ['--speaker', speaker] : []),
+    ])
+  } else {
+    const [espeakVoice, pitch, speed] = config.espeak
+    await run('espeak-ng', [
+      '-v', espeakVoice,
+      '-s', String(speed),
+      '-p', String(pitch),
+      '-g', '1',
+      '-f', textFile,
+      '-w', rawFile,
+    ])
+  }
 
   // Formato uniforme, ganancia fija (la normalización se hace una vez sobre la pista completa)
   // y una cola corta de silencio para respirar entre escenas.
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', rawFile,
-    '-af', 'volume=2.0,apad=pad_dur=0.22,apad=whole_dur=1.6,afade=t=in:st=0:d=0.02',
+    '-af', 'apad=pad_dur=0.15,apad=whole_dur=1.6,afade=t=in:st=0:d=0.02',
     '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le',
     padFile,
   ])
