@@ -200,8 +200,10 @@ const promptFor = (input: JobInput): string =>
     input.script?.trim() ? `Guion base del usuario (respétalo): ${input.script}` : '',
     `Tono: ${input.tone}. Formato: ${input.format === 'vertical' ? 'Shorts vertical' : 'horizontal 16:9'}.`,
     `Duración objetivo: ${input.targetDuration} segundos leídos en voz alta,`,
-    `así que el guion completo debe tener entre ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.85)} y ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.95)} palabras`,
-    `repartidas en ${sceneCountFor(input.targetDuration)} escenas. Frases cortas y directas, en español.`,
+    `así que el guion completo debe tener entre ${Math.round(input.targetDuration * WORDS_PER_SECOND)} y ${Math.round(input.targetDuration * WORDS_PER_SECOND * 1.15)} palabras`,
+    `repartidas en ${sceneCountFor(input.targetDuration)} escenas, es decir unas ${Math.round(
+      (input.targetDuration * WORDS_PER_SECOND * 1.05) / sceneCountFor(input.targetDuration),
+    )} palabras de narración por escena (cuéntalas, no te quedes corto). Frases cortas y directas, en español.`,
     `Incluye en "keywords" 3 términos EN INGLÉS para buscar imágenes de stock que ilustren la escena.`,
     `Devuelve SOLO JSON con la forma {"title": string, "scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
     `La narración debe sonar natural leída en voz alta, sin emojis ni markdown.`,
@@ -217,7 +219,7 @@ const scenesFromAi = (parsed: AiScript, input: JobInput): { title: string; scene
     heading: s.heading.replace(/^\s*escena\s*\d+\s*[:.-]\s*/i, '').trim(),
     narration: trimWords(
       s.narration,
-      Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.95) / Math.max(1, parsed.scenes.length)),
+      Math.floor((input.targetDuration * WORDS_PER_SECOND * 1.15) / Math.max(1, parsed.scenes.length)),
     ),
     keywords: s.keywords ?? keywordsFrom(s.narration),
   })),
