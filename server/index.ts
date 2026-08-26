@@ -21,7 +21,7 @@ app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }))
 app.get('/api/health', async (_req, res) => {
   res.json({
     ok: true,
-    aiScript: Boolean(process.env.OPENAI_API_KEY),
+    aiScript: Boolean(process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY),
     tts: (await piperModelFor('slt')) ? 'piper' : 'espeak-ng',
     stock: process.env.PEXELS_API_KEY ? 'pexels' : process.env.OPENVERSE_CLIENT_ID ? 'openverse' : 'commons',
     voices: VOICES,

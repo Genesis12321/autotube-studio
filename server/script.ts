@@ -200,7 +200,7 @@ const promptFor = (input: JobInput): string =>
     input.script?.trim() ? `Guion base del usuario (respétalo): ${input.script}` : '',
     `Tono: ${input.tone}. Formato: ${input.format === 'vertical' ? 'Shorts vertical' : 'horizontal 16:9'}.`,
     `Duración objetivo: ${input.targetDuration} segundos leídos en voz alta,`,
-    `así que el guion completo debe tener como máximo ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.95)} palabras`,
+    `así que el guion completo debe tener entre ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.85)} y ${Math.round(input.targetDuration * WORDS_PER_SECOND * 0.95)} palabras`,
     `repartidas en ${sceneCountFor(input.targetDuration)} escenas. Frases cortas y directas, en español.`,
     `Incluye en "keywords" 3 términos EN INGLÉS para buscar imágenes de stock que ilustren la escena.`,
     `Devuelve SOLO JSON con la forma {"title": string, "scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
@@ -214,7 +214,7 @@ const scenesFromAi = (parsed: AiScript, input: JobInput): { title: string; scene
   title: parsed.title,
   scenes: parsed.scenes.map((s, index) => ({
     index,
-    heading: s.heading,
+    heading: s.heading.replace(/^\s*escena\s*\d+\s*[:.-]\s*/i, '').trim(),
     narration: trimWords(
       s.narration,
       Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.95) / Math.max(1, parsed.scenes.length)),
@@ -238,32 +238,46 @@ const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ ti
   return scenesFromAi(JSON.parse(payload.choices[0].message.content) as AiScript, input)
 }
 
+/** Modelos por orden de preferencia: si uno está saturado (503) se prueba el siguiente. */
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-flash-lite-latest']
+
 /** Gemini: alternativa con nivel gratuito, útil cuando la cuenta de OpenAI no tiene saldo. */
 const generateWithGemini = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptFor(input) }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      }),
-    },
-  )
-  if (!res.ok) throw new Error(`gemini ${res.status}`)
-  const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('gemini sin respuesta')
-  return scenesFromAi(JSON.parse(text) as AiScript, input)
+  let lastError = new Error('gemini sin modelos')
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: promptFor(input) }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+          signal: AbortSignal.timeout(120000),
+        },
+      )
+      if (!res.ok) throw new Error(`gemini ${model} ${res.status}`)
+      const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+      const text = payload.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text
+      if (!text) throw new Error(`gemini ${model} sin respuesta`)
+      return scenesFromAi(JSON.parse(text) as AiScript, input)
+    } catch (err) {
+      lastError = err as Error
+      console.warn('[script]', lastError.message)
+    }
+  }
+  throw lastError
 }
 
 export const generateScript = async (
   input: JobInput,
 ): Promise<{ title: string; scenes: Scene[]; source: 'openai' | 'gemini' | 'local' }> => {
   const providers = [
-    { source: 'openai' as const, key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },
     { source: 'gemini' as const, key: process.env.GEMINI_API_KEY?.trim(), run: generateWithGemini },
+    { source: 'openai' as const, key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },
   ]
 
   for (const { source, key, run } of providers) {
