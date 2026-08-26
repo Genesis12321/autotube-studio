@@ -191,7 +191,12 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   return { title: topic, scenes }
 }
 
-type AiScript = { title: string; scenes: { heading: string; narration: string; keywords?: string[] }[] }
+type AiScript = {
+  title: string
+  description?: string
+  hashtags?: string[]
+  scenes: { heading: string; narration: string; keywords?: string[] }[]
+}
 
 const promptFor = (input: JobInput): string =>
   [
@@ -205,15 +210,18 @@ const promptFor = (input: JobInput): string =>
       (input.targetDuration * WORDS_PER_SECOND * 1.05) / sceneCountFor(input.targetDuration),
     )} palabras de narración por escena (cuéntalas, no te quedes corto). Frases cortas y directas, en español.`,
     `Incluye en "keywords" 3 términos EN INGLÉS para buscar imágenes de stock que ilustren la escena.`,
-    `Devuelve SOLO JSON con la forma {"title": string, "scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
+    `Añade también "description" (2 o 3 frases para la caja de descripción de YouTube) y "hashtags" (5 etiquetas sin espacios).`,
+    `Devuelve SOLO JSON con la forma {"title": string, "description": string, "hashtags": string[], "scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
     `La narración debe sonar natural leída en voz alta, sin emojis ni markdown.`,
   ]
     .filter(Boolean)
     .join('\n')
 
 /** Normaliza la respuesta del modelo al formato de escenas del pipeline. */
-const scenesFromAi = (parsed: AiScript, input: JobInput): { title: string; scenes: Scene[] } => ({
+const scenesFromAi = (parsed: AiScript, input: JobInput): AiResult => ({
   title: parsed.title,
+  description: parsed.description,
+  hashtags: parsed.hashtags?.map((h) => (h.startsWith('#') ? h : `#${h}`)).slice(0, 8),
   scenes: parsed.scenes.map((s, index) => ({
     index,
     heading: s.heading.replace(/^\s*escena\s*\d+\s*[:.-]\s*/i, '').trim(),
@@ -225,7 +233,9 @@ const scenesFromAi = (parsed: AiScript, input: JobInput): { title: string; scene
   })),
 })
 
-const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
+type AiResult = { title: string; scenes: Scene[]; description?: string; hashtags?: string[] }
+
+const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<AiResult> => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
@@ -244,7 +254,7 @@ const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ ti
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-flash-lite-latest']
 
 /** Gemini: alternativa con nivel gratuito, útil cuando la cuenta de OpenAI no tiene saldo. */
-const generateWithGemini = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
+const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiResult> => {
   let lastError = new Error('gemini sin modelos')
 
   for (const model of GEMINI_MODELS) {
@@ -276,7 +286,7 @@ const generateWithGemini = async (input: JobInput, apiKey: string): Promise<{ ti
 
 export const generateScript = async (
   input: JobInput,
-): Promise<{ title: string; scenes: Scene[]; source: 'openai' | 'gemini' | 'local' }> => {
+): Promise<AiResult & { source: 'openai' | 'gemini' | 'local' }> => {
   const providers = [
     { source: 'gemini' as const, key: process.env.GEMINI_API_KEY?.trim(), run: generateWithGemini },
     { source: 'openai' as const, key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },

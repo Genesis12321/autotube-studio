@@ -14,6 +14,7 @@ import {
   run,
   synthVoice,
 } from './render'
+import { fetchMusicTrack } from './music'
 import { fetchStockImage } from './stock'
 import type { Job, JobInput, StepId } from './types'
 
@@ -97,11 +98,14 @@ const runJob = async (job: Job): Promise<void> => {
 
   try {
     update(job, 'script', { status: 'running', progress: 25, detail: 'Estructurando escenas...' })
-    const { title, scenes, source } = await generateScript(job.input)
+    const { title, scenes, source, description, hashtags } = await generateScript(job.input)
     job.title = title
     job.scenes = scenes
     job.scriptSource = source
-    finishStep(job, 'script', `${scenes.length} escenas · ${source === 'openai' ? 'OpenAI' : 'generador local'}`)
+    job.description = description
+    job.hashtags = hashtags
+    const sourceLabel = source === 'local' ? 'generador local' : source === 'gemini' ? 'Gemini' : 'OpenAI'
+    finishStep(job, 'script', `${scenes.length} escenas · ${sourceLabel}`)
 
     update(job, 'voice', { status: 'running', progress: 5, detail: 'Sintetizando voz...' })
     const audioFiles: string[] = []
@@ -143,8 +147,21 @@ const runJob = async (job: Job): Promise<void> => {
         detail: `Imagen ${images.length}/${scenes.length}`,
       })
     }
+    // Segunda imagen solo en las escenas largas: la escena cambia de plano por la mitad.
+    const imagesB: (string | null)[] = []
+    for (const scene of scenes) {
+      imagesB.push(
+        (scene.durationSec ?? 0) >= 7
+          ? await fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation, 1)
+          : null,
+      )
+    }
     const found = images.filter(Boolean).length
     finishStep(job, 'visuals', `${found}/${scenes.length} imágenes de stock encontradas`)
+
+    // Música libre acorde al tono (cacheada entre jobs); si no hay, el vídeo va solo con voz.
+    const musicFile = await fetchMusicTrack(job.input.tone, path.join(DATA_DIR, 'music')).catch(() => null)
+    job.music = musicFile ? path.basename(musicFile, '.mp3') : undefined
 
     update(job, 'render', { status: 'running', progress: 5, detail: 'Componiendo escenas...' })
     const sceneFiles: string[] = []
@@ -155,6 +172,7 @@ const runJob = async (job: Job): Promise<void> => {
         workDir,
         title: job.title ?? job.input.topic,
         imageFile: images[scene.index],
+        imageFileB: imagesB[scene.index],
         fadeIn: scene.index === 0,
         fadeOut: scene.index === scenes.length - 1,
       })
@@ -170,7 +188,7 @@ const runJob = async (job: Job): Promise<void> => {
     const finalFile = path.join(workDir, 'final.mp4')
     const silentFile = path.join(workDir, 'silent.mp4')
     await concatScenes(sceneFiles, workDir, silentFile)
-    await muxVoice(silentFile, voiceTrack, finalFile)
+    await muxVoice(silentFile, voiceTrack, finalFile, musicFile)
     await run('ffmpeg', [
       '-hide_banner', '-loglevel', 'error', '-y',
       '-ss', '0.8', '-i', finalFile, '-frames:v', '1',

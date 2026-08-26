@@ -45,4 +45,7 @@ export type Job = {
   durationSec?: number
   sizeBytes?: number
   scriptSource?: 'openai' | 'gemini' | 'local'
+  description?: string
+  hashtags?: string[]
+  music?: string
 }

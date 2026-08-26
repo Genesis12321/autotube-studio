@@ -93,7 +93,7 @@ const searchPexels = async (
 let openverseToken: { value: string; expiresAt: number } | null = null
 
 /** Openverse exige OAuth: pide (y cachea) un token de cliente si hay credenciales. */
-const openverseAuth = async (): Promise<Record<string, string>> => {
+export const openverseAuth = async (): Promise<Record<string, string>> => {
   const clientId = process.env.OPENVERSE_CLIENT_ID?.trim()
   const clientSecret = process.env.OPENVERSE_CLIENT_SECRET?.trim()
   if (!clientId || !clientSecret) return {}
@@ -248,10 +248,11 @@ export const fetchStockImage = async (
   index: number,
   workDir: string,
   orientation: Orientation,
+  variant = 0,
 ): Promise<string | null> => {
-  const keyword = keywords[index % Math.max(1, keywords.length)] ?? ''
+  const keyword = keywords[(index + variant) % Math.max(1, keywords.length)] ?? ''
   const queries = [`${topic} ${keyword}`, topic, keyword].map((q) => q.trim()).filter(Boolean)
-  const file = path.join(workDir, `stock-${index}.jpg`)
+  const file = path.join(workDir, `stock-${index}${variant ? `-${variant}` : ''}.jpg`)
   let used = usedUrls.get(workDir)
   if (!used) {
     used = new Set()

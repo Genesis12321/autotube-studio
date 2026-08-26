@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { access, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { writeSceneSubtitles } from './subtitles'
 import type { Scene, VideoFormat, VoiceId } from './types'
 
 const FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
@@ -130,12 +131,28 @@ export const buildVoiceTrack = async (files: string[], workDir: string, outFile:
   ])
 }
 
-/** Multiplexa el vídeo mudo ya concatenado con la pista de voz continua. */
-export const muxVoice = async (videoFile: string, audioFile: string, outFile: string): Promise<void> => {
+/**
+ * Multiplexa el vídeo mudo ya concatenado con la pista de voz continua. Si hay música libre,
+ * se mezcla de fondo con compresión sidechain para que baje sola cuando habla la voz.
+ */
+export const muxVoice = async (
+  videoFile: string,
+  audioFile: string,
+  outFile: string,
+  musicFile?: string | null,
+): Promise<void> => {
+  const mix = [
+    '[1:a]asplit=2[voice][key]',
+    '[2:a]aloop=loop=-1:size=2e9,volume=0.16,afade=t=in:st=0:d=2[bed]',
+    '[bed][key]sidechaincompress=threshold=0.03:ratio=12:attack=20:release=400[duck]',
+    '[voice][duck]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]',
+  ].join(';')
+
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', videoFile, '-i', audioFile,
-    '-map', '0:v:0', '-map', '1:a:0',
+    ...(musicFile ? ['-i', musicFile] : []),
+    ...(musicFile ? ['-filter_complex', mix, '-map', '0:v:0', '-map', '[a]'] : ['-map', '0:v:0', '-map', '1:a:0']),
     '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k',
     '-shortest', '-movflags', '+faststart',
     outFile,
@@ -166,38 +183,64 @@ export const renderScene = async (
     workDir: string
     title: string
     imageFile?: string | null
+    imageFileB?: string | null
     fadeIn?: boolean
     fadeOut?: boolean
   },
 ): Promise<string> => {
   const { format, duration, workDir, title, imageFile, fadeIn, fadeOut } = opts
+  // Solo se usa una segunda imagen cuando la escena da tiempo a que la transición se aprecie.
+  const imageFileB = duration >= 7 ? opts.imageFileB : null
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
   const [c0, c1] = PALETTES[scene.index % PALETTES.length]
   const out = path.join(workDir, `scene-${scene.index}.mp4`)
 
-  const bodyFile = path.join(workDir, `scene-${scene.index}-body.txt`)
   const headFile = path.join(workDir, `scene-${scene.index}-head.txt`)
-  await writeFile(bodyFile, wrap(scene.narration, format === 'vertical' ? 30 : 56), 'utf8')
-  await writeFile(headFile, scene.index === 0 ? wrap(title, format === 'vertical' ? 24 : 40) : scene.heading, 'utf8')
+  const subsFile = path.join(workDir, `scene-${scene.index}.ass`)
+  // El titular solo se muestra en la primera escena y cuando no es un "Escena N" sin valor.
+  const heading =
+    scene.index === 0
+      ? wrap(title, format === 'vertical' ? 24 : 40)
+      : /^escena\s*\d*$/i.test(scene.heading.trim())
+        ? ''
+        : scene.heading
+  await writeFile(headFile, heading, 'utf8')
+  await writeSceneSubtitles(scene.narration, duration, { w, h }, subsFile)
 
-  const bodySize = format === 'vertical' ? 50 : 44
   const headSize = format === 'vertical' ? 56 : 48
   const frames = Math.max(2, Math.round(duration * 30))
 
   // Ken Burns sobre la imagen de stock; degradado animado si no hay imagen.
-  const background = imageFile
-    ? `[0:v]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
-      `zoompan=z='min(1+0.0006*on,1.12)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,` +
-      `format=yuv420p[bg]`
-    : `[0:v]format=yuv420p[bg]`
+  const kenBurns = (input: string, out: string, seconds: number): string =>
+    `[${input}]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
+    `zoompan=z='min(1+0.0006*on,1.12)':d=${Math.max(2, Math.round(seconds * 30))}:` +
+    `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,format=yuv420p,trim=0:${seconds.toFixed(2)},` +
+    `setpts=PTS-STARTPTS[${out}]`
+
+  // Con dos imágenes la escena cambia de plano por la mitad con una fundida cruzada.
+  const half = duration / 2 + 0.5
+  const background =
+    imageFile && imageFileB
+      ? [
+          kenBurns('0:v', 'bgA', half),
+          kenBurns('1:v', 'bgB', half),
+          `[bgA][bgB]xfade=transition=fade:duration=0.6:offset=${Math.max(0.1, half - 0.6).toFixed(2)}[bg]`,
+        ].join(';')
+      : imageFile
+        ? `[0:v]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
+          `zoompan=z='min(1+0.0006*on,1.12)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,` +
+          `format=yuv420p[bg]`
+        : `[0:v]format=yuv420p[bg]`
 
   const filters = [
     background,
     `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.28:t=fill[dim]`,
-    `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:line_spacing=12:` +
-      `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.55:boxborderw=22[head]`,
-    `[head]drawtext=fontfile=${FONT}:textfile=${bodyFile}:fontsize=${bodySize}:fontcolor=white:line_spacing=14:` +
-      `x=(w-text_w)/2:y=h*0.68-text_h/2:box=1:boxcolor=black@0.55:boxborderw=28[txt]`,
+    heading
+      ? `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:line_spacing=12:` +
+        `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.55:boxborderw=22[head]`
+      : '[dim]null[head]',
+    // Subtítulos karaoke: aparecen por trozos de 2-3 palabras al ritmo de la locución.
+    `[head]ass=${subsFile}[txt]`,
     // Solo se funde a negro al principio y al final del vídeo: entre escenas el corte es directo.
     `[txt]${[
       fadeIn ? 'fade=t=in:st=0:d=0.4' : null,
@@ -208,7 +251,10 @@ export const renderScene = async (
   ].join(';')
 
   const videoInput = imageFile
-    ? ['-loop', '1', '-t', duration.toFixed(2), '-i', imageFile]
+    ? [
+        '-loop', '1', '-t', duration.toFixed(2), '-i', imageFile,
+        ...(imageFileB ? ['-loop', '1', '-t', duration.toFixed(2), '-i', imageFileB] : []),
+      ]
     : [
         '-f', 'lavfi',
         '-i', `gradients=s=${w}x${h}:c0=${c0}:c1=${c1}:d=${duration.toFixed(2)}:speed=0.02:r=30`,
