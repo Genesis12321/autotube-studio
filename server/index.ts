@@ -2,9 +2,12 @@ import cors from 'cors'
 import express from 'express'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
+import { loadEnv } from './env'
 import { MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs } from './pipeline'
 import { piperModelFor } from './render'
 import type { JobInput, VideoFormat, VoiceId } from './types'
+
+loadEnv()
 
 const PORT = Number(process.env.PORT ?? 8787)
 const VOICES: VoiceId[] = ['slt', 'kal16', 'awb', 'rms']
@@ -20,6 +23,7 @@ app.get('/api/health', async (_req, res) => {
     ok: true,
     aiScript: Boolean(process.env.OPENAI_API_KEY),
     tts: (await piperModelFor('slt')) ? 'piper' : 'espeak-ng',
+    stock: process.env.PEXELS_API_KEY ? 'pexels' : process.env.OPENVERSE_CLIENT_ID ? 'openverse' : 'commons',
     voices: VOICES,
   })
 })

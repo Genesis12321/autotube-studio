@@ -83,6 +83,27 @@ const trimWords = (text: string, maxWords: number): string => {
   return /[.!?]$/.test(cut) ? cut : `${cut}.`
 }
 
+/** Palabras abstractas que como consulta de imagen devuelven fotos sin relación con el tema. */
+const ABSTRACT = new Set([
+  'mayoria', 'mayoría', 'resultados', 'rapidos', 'rápidos', 'constancia', 'intensidad', 'progreso', 'diferencia',
+  'errores', 'habituales', 'alguien', 'empieza', 'objetivo', 'concreto', 'misma', 'rutina', 'durante', 'semanas',
+  'siguiente', 'castigarte', 'mucha', 'gente', 'cierto', 'quince', 'minutos', 'enfocados', 'avanzas', 'horas',
+  'dispersas', 'distracciones', 'silencio', 'tarea', 'delante', 'semana', 'funcionando', 'ajusta', 'variable',
+  'saber', 'causa', 'mejora', 'conseguir', 'costumbre', 'ejemplo', 'practico', 'práctico', 'aplicado', 'imagina',
+  'veinte', 'libres', 'divide', 'bloques', 'primero', 'preparas', 'segundo', 'ejecutas', 'pequeño', 'sistema',
+  'sostiene', 'largo', 'plazo', 'punto', 'clave', 'medir', 'obsesionarse', 'apunta', 'datos', 'hiciste', 'sentiste',
+  'detectas', 'patrones', 'aparezca', 'aburrimiento', 'cambia', 'forma', 'lugar', 'horario', 'metodo', 'método',
+  'abandones', 'compara', 'ano', 'año', 'comparate', 'compárate', 'contigo', 'mismo', 'prepara', 'entorno',
+  'opcion', 'opción', 'facil', 'fácil', 'todo', 'listo', 'noche', 'anterior', 'reduce', 'decisiones', 'cuanto',
+  'menos', 'pienses', 'excusas', 'encontraras', 'encontrarás', 'ponle', 'final', 'claro', 'cada', 'sesion',
+  'sesión', 'terminar', 'energia', 'energía', 'sobra', 'quieras', 'volver', 'manana', 'mañana', 'recuerda',
+  'motivacion', 'motivación', 'llega', 'ratos', 'aguanta', 'malos', 'resumiendo', 'revision', 'revisión',
+  'semanal', 'prueba', 'cuentame', 'cuéntame', 'guarda', 'video', 'vídeo', 'aplicalo', 'aplícalo', 'sirve',
+  'sigue', 'canal', 'nadie', 'cuenta', 'sobre', 'segundos', 'entender', 'atencion', 'atención', 'cambia todo',
+  'equivoca', 'antes', 'nada', 'aclaremos', 'significa', 'realmente', 'evitarlo', 'define', 'repite', 'exige',
+  'mucho', 'tiempo', 'quita', 'movil', 'móvil', 'solo', 'sola', 'rodeate', 'rodéate', 'quiere', 'cabo',
+])
+
 const keywordsFrom = (text: string): string[] =>
   Array.from(
     new Set(
@@ -90,7 +111,7 @@ const keywordsFrom = (text: string): string[] =>
         .toLowerCase()
         .replace(/[^\p{L}\p{N} ]/gu, ' ')
         .split(/\s+/)
-        .filter((w) => w.length > 4),
+        .filter((w) => w.length > 4 && !ABSTRACT.has(w)),
     ),
   ).slice(0, 4)
 

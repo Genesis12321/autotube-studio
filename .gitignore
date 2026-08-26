@@ -25,3 +25,7 @@ dist-ssr
 
 # datos generados
 data/
+
+# claves locales
+.env
+.env.local
