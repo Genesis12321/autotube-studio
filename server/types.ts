@@ -44,5 +44,5 @@ export type Job = {
   audioUrl?: string
   durationSec?: number
   sizeBytes?: number
-  scriptSource?: 'openai' | 'local'
+  scriptSource?: 'openai' | 'gemini' | 'local'
 }

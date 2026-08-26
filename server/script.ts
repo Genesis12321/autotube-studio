@@ -191,8 +191,10 @@ const generateLocal = (input: JobInput): { title: string; scenes: Scene[] } => {
   return { title: topic, scenes }
 }
 
-const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
-  const prompt = [
+type AiScript = { title: string; scenes: { heading: string; narration: string; keywords?: string[] }[] }
+
+const promptFor = (input: JobInput): string =>
+  [
     `Eres guionista de vídeos cortos "faceless" para YouTube.`,
     `Tema: ${input.topic}`,
     input.script?.trim() ? `Guion base del usuario (respétalo): ${input.script}` : '',
@@ -207,45 +209,69 @@ const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ ti
     .filter(Boolean)
     .join('\n')
 
+/** Normaliza la respuesta del modelo al formato de escenas del pipeline. */
+const scenesFromAi = (parsed: AiScript, input: JobInput): { title: string; scenes: Scene[] } => ({
+  title: parsed.title,
+  scenes: parsed.scenes.map((s, index) => ({
+    index,
+    heading: s.heading,
+    narration: trimWords(
+      s.narration,
+      Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.95) / Math.max(1, parsed.scenes.length)),
+    ),
+    keywords: s.keywords ?? keywordsFrom(s.narration),
+  })),
+})
+
+const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: promptFor(input) }],
     }),
   })
   if (!res.ok) throw new Error(`openai ${res.status}`)
   const payload = (await res.json()) as { choices: { message: { content: string } }[] }
-  const parsed = JSON.parse(payload.choices[0].message.content) as {
-    title: string
-    scenes: { heading: string; narration: string; keywords?: string[] }[]
-  }
-  return {
-    title: parsed.title,
-    scenes: parsed.scenes.map((s, index) => ({
-      index,
-      heading: s.heading,
-      narration: trimWords(
-        s.narration,
-        Math.floor((input.targetDuration * WORDS_PER_SECOND * 0.95) / Math.max(1, parsed.scenes.length)),
-      ),
-      keywords: s.keywords ?? keywordsFrom(s.narration),
-    })),
-  }
+  return scenesFromAi(JSON.parse(payload.choices[0].message.content) as AiScript, input)
+}
+
+/** Gemini: alternativa con nivel gratuito, útil cuando la cuenta de OpenAI no tiene saldo. */
+const generateWithGemini = async (input: JobInput, apiKey: string): Promise<{ title: string; scenes: Scene[] }> => {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: promptFor(input) }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    },
+  )
+  if (!res.ok) throw new Error(`gemini ${res.status}`)
+  const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('gemini sin respuesta')
+  return scenesFromAi(JSON.parse(text) as AiScript, input)
 }
 
 export const generateScript = async (
   input: JobInput,
-): Promise<{ title: string; scenes: Scene[]; source: 'openai' | 'local' }> => {
-  const apiKey = process.env.OPENAI_API_KEY?.trim()
-  if (apiKey) {
+): Promise<{ title: string; scenes: Scene[]; source: 'openai' | 'gemini' | 'local' }> => {
+  const providers = [
+    { source: 'openai' as const, key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },
+    { source: 'gemini' as const, key: process.env.GEMINI_API_KEY?.trim(), run: generateWithGemini },
+  ]
+
+  for (const { source, key, run } of providers) {
+    if (!key) continue
     try {
-      const result = await generateWithOpenAI(input, apiKey)
-      return { ...result, source: 'openai' }
+      return { ...(await run(input, key)), source }
     } catch (err) {
-      console.warn('[script] OpenAI no disponible, uso generador local:', (err as Error).message)
+      console.warn(`[script] ${source} no disponible, pruebo el siguiente:`, (err as Error).message)
     }
   }
   return { ...generateLocal(input), source: 'local' }
