@@ -53,7 +53,7 @@ const withCredits = (description: string | undefined, credits: Credit[]): string
   return [description ?? '', '', 'Créditos:', ...lines].join('\n').trim()
 }
 
-export const DATA_DIR = path.resolve(process.cwd(), 'data')
+export const DATA_DIR = path.resolve(process.env.DATA_DIR ?? path.join(process.cwd(), 'data'))
 export const MEDIA_DIR = path.join(DATA_DIR, 'media')
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json')
 
@@ -110,6 +110,15 @@ export const selectThumb = (id: string, index: number): Job | undefined => {
   void persist()
   bus.emit('job', job)
   return job
+}
+
+/** Guarda el id del vídeo ya publicado en YouTube para no volver a subirlo. */
+export const setYoutubeId = (id: string, youtubeId: string): void => {
+  const job = jobs.get(id)
+  if (!job) return
+  job.youtubeId = youtubeId
+  void persist()
+  bus.emit('job', job)
 }
 
 const update = (job: Job, stepId: StepId, patch: Partial<Job['steps'][number]>) => {

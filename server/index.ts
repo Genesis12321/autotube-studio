@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express from 'express'
+import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { authEnabled, authorized, guard, login } from './auth'
@@ -158,6 +159,12 @@ app.get('/api/stream', (_req, res) => {
   })
 })
 
+const DIST_DIR = path.resolve(process.cwd(), 'dist')
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR, { index: false }))
+  app.get(/.*/, (_req, res) => res.sendFile(path.join(DIST_DIR, 'index.html')))
+}
+
 await loadJobs()
 await loadTokens(DATA_DIR)
-app.listen(PORT, () => console.log(`[autotube] API escuchando en http://localhost:${PORT}`))
+app.listen(PORT, '0.0.0.0', () => console.log(`[autotube] API escuchando en el puerto ${PORT}`))

@@ -1,0 +1,36 @@
+FROM node:22-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIPER_BIN=/opt/piper-venv/bin/python \
+    PIPER_VOICES_DIR=/opt/piper-voices \
+    DATA_DIR=/data \
+    NODE_ENV=production \
+    PORT=8080
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg espeak-ng fonts-dejavu-core python3 python3-venv ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/piper-venv && /opt/piper-venv/bin/pip install --no-cache-dir piper-tts
+
+ARG VOICES_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main
+RUN mkdir -p /opt/piper-voices && cd /opt/piper-voices && \
+    for voice in \
+      "es/es_ES/sharvard/medium/es_ES-sharvard-medium" \
+      "es/es_ES/davefx/medium/es_ES-davefx-medium" \
+      "es/es_MX/claude/high/es_MX-claude-high" \
+      "es/es_AR/daniela/high/es_AR-daniela-high" ; do \
+      name=$(basename "$voice") ; \
+      curl -fsSL "$VOICES_BASE/$voice.onnx?download=true" -o "$name.onnx" ; \
+      curl -fsSL "$VOICES_BASE/$voice.onnx.json?download=true" -o "$name.onnx.json" ; \
+    done
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
+
+COPY . .
+RUN npm run build
+
+EXPOSE 8080
+CMD ["npm", "start"]
