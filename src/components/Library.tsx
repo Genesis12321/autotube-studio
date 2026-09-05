@@ -15,9 +15,9 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
   if (jobs.length === 0) {
     return (
       <div className="card flex flex-col items-center gap-2 py-12 text-center">
-        <Film className="text-slate-600" size={32} />
-        <p className="text-sm text-slate-400">Aún no has generado vídeos</p>
-        <p className="text-xs text-slate-600">Crea el primero desde la pestaña Generar</p>
+        <Film className="text-amber-100/30" size={32} />
+        <p className="text-sm text-amber-100/60">Aún no has generado vídeos</p>
+        <p className="text-xs text-amber-100/30">Crea el primero desde la pestaña Generar</p>
       </div>
     )
   }
@@ -41,7 +41,7 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <span className="flex h-full items-center justify-center text-slate-500">
+              <span className="flex h-full items-center justify-center text-amber-100/45">
                 {job.status === 'error' ? '!' : <Loader2 size={16} className="animate-spin" />}
               </span>
             )}
@@ -49,7 +49,7 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{job.title ?? job.input.topic}</p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-amber-100/45">
               {fmtDate(job.createdAt)}
               {job.durationSec ? ` · ${job.durationSec.toFixed(0)}s` : ''}
               {job.sizeBytes ? ` · ${(job.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ''}
@@ -88,7 +88,7 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
               <button
                 type="button"
                 onClick={() => onDelete(job)}
-                className="ml-auto rounded-lg bg-ink-600 p-1.5 text-slate-400"
+                className="ml-auto rounded-lg bg-ink-600 p-1.5 text-amber-100/60"
                 aria-label="Eliminar"
               >
                 <Trash2 size={13} />

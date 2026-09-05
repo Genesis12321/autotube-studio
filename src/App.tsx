@@ -59,13 +59,13 @@ const App = () => {
     <div className="mx-auto flex min-h-full max-w-md flex-col">
       <ToastStack toasts={toasts} />
 
-      <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-white/5 bg-ink-900/90 px-4 py-3 backdrop-blur">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600">
+      <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-brand-500/20 bg-ink-900/90 px-4 py-3 backdrop-blur">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#f7e3a1] via-[#e2b53f] to-[#a97d10] text-ink-900 shadow-[0_6px_18px_-8px_rgba(226,181,63,0.9)]">
           <Clapperboard size={18} />
         </span>
         <div className="flex-1">
-          <h1 className="text-sm font-semibold leading-tight">AutoTube Studio</h1>
-          <p className="text-[11px] text-slate-500">Generador de vídeos faceless</p>
+          <h1 className="gold-text text-sm font-semibold leading-tight">AutoTube Studio</h1>
+          <p className="text-[11px] text-amber-100/40">Generador de vídeos faceless</p>
         </div>
         <span
           className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] ${
@@ -93,7 +93,7 @@ const App = () => {
         )}
       </main>
 
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-md border-t border-white/5 bg-ink-800/95 backdrop-blur">
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-md border-t border-brand-500/20 bg-ink-800/95 backdrop-blur">
         {([
           { id: 'create', label: 'Generar', icon: Sparkles },
           { id: 'library', label: 'Biblioteca', icon: LibraryIcon },
@@ -103,7 +103,7 @@ const App = () => {
             type="button"
             onClick={() => setTab(item.id)}
             className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] ${
-              tab === item.id ? 'text-brand-400' : 'text-slate-500'
+              tab === item.id ? 'text-brand-400' : 'text-amber-100/40'
             }`}
           >
             <item.icon size={20} />

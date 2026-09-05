@@ -35,7 +35,7 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
   return (
     <div className="space-y-4 animate-fade-in">
       <section className="card space-y-3">
-        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-400">Idea o temática</label>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-amber-100/60">Idea o temática</label>
         <input
           className="field"
           placeholder="Ej. 3 hábitos que multiplican tu productividad"
@@ -62,7 +62,7 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
 
       <section className="card space-y-4">
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Formato</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-100/60">Formato</p>
           <div className="flex gap-2">
             {([
               { id: 'vertical', label: 'Shorts / Reels', icon: Smartphone, hint: '9:16' },
@@ -74,20 +74,20 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
                 onClick={() => setFormat(opt.id)}
                 className={`chip flex flex-col items-center gap-1 py-3 ${
                   format === opt.id
-                    ? 'border-brand-500 bg-brand-600/20 text-white'
-                    : 'border-white/10 bg-ink-700 text-slate-400'
+                    ? 'border-brand-500 bg-brand-500/15 text-brand-400'
+                    : 'border-brand-500/15 bg-ink-700 text-amber-100/60'
                 }`}
               >
                 <opt.icon size={18} />
                 {opt.label}
-                <span className="text-[10px] text-slate-500">{opt.hint}</span>
+                <span className="text-[10px] text-amber-100/45">{opt.hint}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Voz IA (TTS)</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-100/60">Voz IA (TTS)</p>
           <div className="grid grid-cols-2 gap-2">
             {VOICES.map((v) => (
               <button
@@ -95,18 +95,18 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
                 type="button"
                 onClick={() => setVoice(v.id)}
                 className={`rounded-xl border px-3 py-2 text-left transition-colors ${
-                  voice === v.id ? 'border-brand-500 bg-brand-600/20' : 'border-white/10 bg-ink-700'
+                  voice === v.id ? 'border-brand-500 bg-brand-500/15' : 'border-brand-500/15 bg-ink-700'
                 }`}
               >
                 <span className="block text-sm font-medium">{v.label}</span>
-                <span className="block text-[11px] text-slate-500">{v.desc}</span>
+                <span className="block text-[11px] text-amber-100/45">{v.desc}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Tono</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-100/60">Tono</p>
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             {TONES.map((t) => (
               <button
@@ -114,7 +114,7 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
                 type="button"
                 onClick={() => setTone(t)}
                 className={`shrink-0 rounded-full border px-3 py-1.5 text-xs capitalize ${
-                  tone === t ? 'border-brand-500 bg-brand-600/20 text-white' : 'border-white/10 bg-ink-700 text-slate-400'
+                  tone === t ? 'border-brand-500 bg-brand-500/15 text-brand-400' : 'border-brand-500/15 bg-ink-700 text-amber-100/60'
                 }`}
               >
                 {t}
@@ -124,7 +124,7 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-100/60">
             Duración objetivo · <span className="text-brand-400">{durationLabel(targetDuration)}</span>
           </p>
           <div className="flex flex-wrap gap-2">
@@ -135,8 +135,8 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
                 onClick={() => setTargetDuration(d)}
                 className={`chip ${
                   targetDuration === d
-                    ? 'border-brand-500 bg-brand-600/20 text-white'
-                    : 'border-white/10 bg-ink-700 text-slate-400'
+                    ? 'border-brand-500 bg-brand-500/15 text-brand-400'
+                    : 'border-brand-500/15 bg-ink-700 text-amber-100/60'
                 }`}
               >
                 {durationLabel(d)}
@@ -144,7 +144,7 @@ export const GeneratorForm = ({ busy, onSubmit }: Props) => {
             ))}
           </div>
           {targetDuration >= 300 && (
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2 text-[11px] text-amber-100/45">
               Los vídeos largos tardan varios minutos en renderizarse; puedes seguir el progreso aquí mismo.
             </p>
           )}

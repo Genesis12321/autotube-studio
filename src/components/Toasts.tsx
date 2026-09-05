@@ -7,7 +7,7 @@ export const ToastStack = ({ toasts }: { toasts: Toast[] }) => (
     {toasts.map((t) => (
       <div
         key={t.id}
-        className="flex w-full max-w-md items-center gap-2 rounded-xl border border-white/10 bg-ink-700/95 px-3 py-2.5 text-sm shadow-lg animate-fade-in"
+        className="flex w-full max-w-md items-center gap-2 rounded-xl border border-brand-500/15 bg-ink-700/95 px-3 py-2.5 text-sm shadow-lg animate-fade-in"
       >
         {t.kind === 'ok' ? (
           <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />

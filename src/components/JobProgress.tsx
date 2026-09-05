@@ -13,7 +13,7 @@ export const JobProgress = ({ job }: { job: Job }) => (
     <header className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold">{job.title ?? job.input.topic}</p>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-amber-100/45">
           {job.input.format === 'vertical' ? '9:16' : '16:9'} · {job.input.tone} · {job.input.targetDuration}s
         </p>
       </div>
@@ -43,7 +43,7 @@ export const JobProgress = ({ job }: { job: Job }) => (
                     ? 'bg-brand-600/20 text-brand-400'
                     : step.status === 'error'
                       ? 'bg-red-500/15 text-red-400'
-                      : 'bg-ink-700 text-slate-600'
+                      : 'bg-ink-700 text-amber-100/30'
               }`}
             >
               {step.status === 'done' ? (
@@ -57,8 +57,8 @@ export const JobProgress = ({ job }: { job: Job }) => (
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <p className={`text-sm ${step.status === 'pending' ? 'text-slate-500' : 'text-slate-100'}`}>{step.label}</p>
-              {step.detail && <p className="truncate text-xs text-slate-500">{step.detail}</p>}
+              <p className={`text-sm ${step.status === 'pending' ? 'text-amber-100/45' : 'text-amber-50'}`}>{step.label}</p>
+              {step.detail && <p className="truncate text-xs text-amber-100/45">{step.detail}</p>}
               <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-600">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
@@ -77,14 +77,14 @@ export const JobProgress = ({ job }: { job: Job }) => (
 
     {job.scenes.length > 0 && (
       <details className="rounded-xl bg-ink-700/60 px-3 py-2">
-        <summary className="cursor-pointer text-xs font-medium text-slate-300">
+        <summary className="cursor-pointer text-xs font-medium text-amber-100/75">
           Guión por escenas ({job.scenes.length})
         </summary>
         <div className="mt-2 space-y-2">
           {job.scenes.map((scene) => (
             <div key={scene.index} className="rounded-lg bg-ink-800 p-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-400">{scene.heading}</p>
-              <p className="mt-0.5 text-xs text-slate-300">{scene.narration}</p>
+              <p className="mt-0.5 text-xs text-amber-100/75">{scene.narration}</p>
             </div>
           ))}
         </div>
@@ -93,7 +93,7 @@ export const JobProgress = ({ job }: { job: Job }) => (
 
     {job.audioUrl && (
       <div>
-        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Vista previa de audio</p>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-amber-100/60">Vista previa de audio</p>
         <audio className="w-full" controls src={job.audioUrl} />
       </div>
     )}
