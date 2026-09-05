@@ -58,5 +58,6 @@ export type Job = {
   hashtags?: string[]
   music?: string
   thumbUrl?: string
+  thumbUrls?: string[]
   credits?: Credit[]
 }

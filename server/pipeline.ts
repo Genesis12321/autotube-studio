@@ -12,7 +12,7 @@ import {
   probeDuration,
   renderScene,
   run,
-  makeThumbnail,
+  makeThumbnails,
   synthVoice,
 } from './render'
 import { fetchStockClip } from './clips'
@@ -100,6 +100,17 @@ export const loadJobs = async (): Promise<void> => {
 
 export const listJobs = (): Job[] => [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 export const getJob = (id: string): Job | undefined => jobs.get(id)
+
+/** Deja fija la portada elegida por el usuario entre las candidatas generadas. */
+export const selectThumb = (id: string, index: number): Job | undefined => {
+  const job = jobs.get(id)
+  const url = job?.thumbUrls?.[index]
+  if (!job || !url) return undefined
+  job.thumbUrl = url
+  void persist()
+  bus.emit('job', job)
+  return job
+}
 
 const update = (job: Job, stepId: StepId, patch: Partial<Job['steps'][number]>) => {
   const step = job.steps.find((s) => s.id === stepId)
@@ -281,23 +292,24 @@ const runJob = async (job: Job): Promise<void> => {
     const silentFile = path.join(workDir, 'silent.mp4')
     await concatScenes(sceneFiles, workDir, silentFile)
     await muxVoice(silentFile, voiceTrack, finalFile, musicFile)
-    await makeThumbnail(
+    const thumbs = await makeThumbnails(
       finalFile,
       job.title ?? job.input.topic,
       job.input.format,
-      path.join(workDir, 'thumb.jpg'),
       workDir,
-    ).catch(() =>
-      run('ffmpeg', [
+    ).catch(async () => {
+      await run('ffmpeg', [
         '-hide_banner', '-loglevel', 'error', '-y',
         '-ss', '0.8', '-i', finalFile, '-frames:v', '1',
-        path.join(workDir, 'thumb.jpg'),
-      ]),
-    )
+        path.join(workDir, 'thumb-0.jpg'),
+      ])
+      return [path.join(workDir, 'thumb-0.jpg')]
+    })
 
     job.credits = dedupeCredits(credits)
     job.description = withCredits(job.description, job.credits)
-    job.thumbUrl = `/media/${job.id}/thumb.jpg`
+    job.thumbUrls = thumbs.map((file) => `/media/${job.id}/${path.basename(file)}`)
+    job.thumbUrl = job.thumbUrls[0]
     job.videoUrl = `/media/${job.id}/final.mp4`
     job.durationSec = await probeDuration(finalFile)
     job.sizeBytes = (await stat(finalFile)).size

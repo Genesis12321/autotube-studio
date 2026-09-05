@@ -318,16 +318,17 @@ const frameBrightness = async (videoFile: string, at: number): Promise<number> =
 }
 
 /**
- * Miniatura para YouTube: el fotograma más luminoso del vídeo, oscurecido y con el título en grande.
+ * Portadas candidatas para YouTube: varios fotogramas del vídeo, ordenados del más
+ * luminoso al más oscuro, oscurecidos y con el título en grande.
  * No corta el flujo si falla: el vídeo ya está montado.
  */
-export const makeThumbnail = async (
+export const makeThumbnails = async (
   videoFile: string,
   title: string,
   format: VideoFormat,
-  outFile: string,
   workDir: string,
-): Promise<void> => {
+  count = 4,
+): Promise<string[]> => {
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
   const textFile = path.join(workDir, 'thumb.txt')
   const maxChars = format === 'vertical' ? 14 : 20
@@ -338,28 +339,37 @@ export const makeThumbnail = async (
   const fontSize = Math.round(Math.min(h * 0.075, (w * 0.86) / (longest * 0.6)))
   const duration = await probeDuration(videoFile)
 
-  const candidates = [0.15, 0.3, 0.5, 0.7, 0.85].map((r) => Math.max(0.5, duration * r))
   const scored = await Promise.all(
-    candidates.map(async (at) => ({ at, luma: await frameBrightness(videoFile, at) })),
+    [0.12, 0.28, 0.45, 0.62, 0.78, 0.9]
+      .map((r) => Math.max(0.5, duration * r))
+      .map(async (at) => ({ at, luma: await frameBrightness(videoFile, at) })),
   )
-  const best = scored.reduce((a, b) => (b.luma > a.luma ? b : a))
+  const picks = scored.sort((a, b) => b.luma - a.luma).slice(0, count)
 
-  await run('ffmpeg', [
-    '-hide_banner', '-loglevel', 'error', '-y',
-    '-ss', best.at.toFixed(2), '-i', videoFile,
-    '-frames:v', '1',
-    '-vf', [
-      `scale=${w}:${h}:force_original_aspect_ratio=increase`,
-      `crop=${w}:${h}`,
-      'eq=contrast=1.15:saturation=1.25',
-      `drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.35:t=fill`,
-      `drawtext=fontfile=${FONT}:textfile=${textFile}:fontsize=${fontSize}:fontcolor=white:` +
-        `line_spacing=${Math.round(fontSize * 0.25)}:borderw=${Math.round(fontSize * 0.09)}:bordercolor=black@0.9:` +
-        'x=(w-text_w)/2:y=(h-text_h)/2',
-    ].join(','),
-    '-q:v', '3',
-    outFile,
-  ])
+  const files: string[] = []
+  for (const [i, pick] of picks.entries()) {
+    const outFile = path.join(workDir, `thumb-${i}.jpg`)
+    await run('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-ss', pick.at.toFixed(2), '-i', videoFile,
+      '-frames:v', '1',
+      '-vf', [
+        // El fotograma lleva quemados el rótulo de escena y los subtítulos: se recortan.
+        'crop=iw:ih*0.58:0:ih*0.2',
+        `scale=${w}:${h}:force_original_aspect_ratio=increase`,
+        `crop=${w}:${h}`,
+        'eq=contrast=1.15:saturation=1.25',
+        `drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.35:t=fill`,
+        `drawtext=fontfile=${FONT}:textfile=${textFile}:fontsize=${fontSize}:fontcolor=white:` +
+          `line_spacing=${Math.round(fontSize * 0.25)}:borderw=${Math.round(fontSize * 0.09)}:bordercolor=black@0.9:` +
+          'x=(w-text_w)/2:y=(h-text_h)/2',
+      ].join(','),
+      '-q:v', '3',
+      outFile,
+    ])
+    files.push(outFile)
+  }
+  return files
 }
 
 export const encodeMp3 = async (inFile: string, outFile: string): Promise<void> => {

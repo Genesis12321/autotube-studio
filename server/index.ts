@@ -3,7 +3,7 @@ import express from 'express'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { loadEnv } from './env'
-import { MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs } from './pipeline'
+import { MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs, selectThumb } from './pipeline'
 import { piperModelFor } from './render'
 import type { JobInput, VideoFormat, VoiceId } from './types'
 
@@ -53,6 +53,13 @@ app.post('/api/jobs', (req, res) => {
     targetDuration: Math.min(600, Math.max(20, Number(body.targetDuration) || 45)),
   }
   res.status(201).json(createJob(input))
+})
+
+app.post('/api/jobs/:id/thumb', (req, res) => {
+  const body = req.body as { index?: number }
+  const job = selectThumb(req.params.id, Number(body.index))
+  if (!job) return res.status(404).json({ error: 'not found' })
+  res.json(job)
 })
 
 app.delete('/api/jobs/:id', async (req, res) => {

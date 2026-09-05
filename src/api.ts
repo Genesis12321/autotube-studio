@@ -13,6 +13,14 @@ export const createJob = async (input: JobInput): Promise<Job> => {
   return (await res.json()) as Job
 }
 
+export const selectThumb = async (id: string, index: number): Promise<void> => {
+  await fetch(`/api/jobs/${id}/thumb`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index }),
+  })
+}
+
 export const deleteJob = async (id: string): Promise<void> => {
   await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
 }

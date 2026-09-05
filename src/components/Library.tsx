@@ -34,7 +34,12 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
             }`}
           >
             {job.videoUrl ? (
-              <img src={`/media/${job.id}/thumb.jpg`} alt="" loading="lazy" className="h-full w-full object-cover" />
+              <img
+                src={job.thumbUrl ?? `/media/${job.id}/thumb.jpg`}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+              />
             ) : (
               <span className="flex h-full items-center justify-center text-slate-500">
                 {job.status === 'error' ? '!' : <Loader2 size={16} className="animate-spin" />}

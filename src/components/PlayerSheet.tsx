@@ -1,5 +1,6 @@
 import { Check, Copy, Download, Image, Upload, X } from 'lucide-react'
 import { useState } from 'react'
+import { selectThumb } from '../api'
 import type { Job } from '../../server/types'
 
 type Props = {
@@ -10,6 +11,13 @@ type Props = {
 
 export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
   const [copied, setCopied] = useState(false)
+  const thumbs = job.thumbUrls ?? (job.thumbUrl ? [job.thumbUrl] : [])
+  const [thumb, setThumb] = useState(job.thumbUrl ?? thumbs[0])
+
+  const pickThumb = (url: string, index: number) => {
+    setThumb(url)
+    void selectThumb(job.id, index)
+  }
   const metadata = [job.title ?? job.input.topic, '', job.description ?? '', '', (job.hashtags ?? []).join(' ')]
     .join('\n')
     .trim()
@@ -33,12 +41,33 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
         <video
           className={`max-h-full w-full rounded-2xl bg-black ${job.input.format === 'vertical' ? 'max-w-[380px]' : ''}`}
           src={job.videoUrl}
-          poster={`/media/${job.id}/thumb.jpg`}
+          poster={thumb}
           controls
           autoPlay
           playsInline
         />
       </div>
+
+      {thumbs.length > 1 && (
+        <div className="mx-4 mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Portada</p>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {thumbs.map((url, index) => (
+              <button
+                key={url}
+                type="button"
+                onClick={() => pickThumb(url, index)}
+                aria-label={`Usar portada ${index + 1}`}
+                className={`h-20 shrink-0 overflow-hidden rounded-xl border-2 ${
+                  url === thumb ? 'border-brand-500' : 'border-transparent'
+                }`}
+              >
+                <img src={url} alt="" className="h-full w-auto object-cover" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(job.description || job.hashtags?.length) && (
         <div className="mx-4 mt-3 max-h-48 overflow-y-auto rounded-2xl bg-ink-800/80 p-4 text-sm">
@@ -65,9 +94,9 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
         >
           <Download size={16} /> Descargar
         </a>
-        {job.thumbUrl && (
+        {thumb && (
           <a
-            href={job.thumbUrl}
+            href={thumb}
             download={`${job.id}-miniatura.jpg`}
             aria-label="Descargar miniatura"
             className="flex h-12 w-12 items-center justify-center rounded-xl bg-ink-700"
