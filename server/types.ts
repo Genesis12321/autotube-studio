@@ -22,6 +22,15 @@ export type Scene = {
   durationSec?: number
 }
 
+/** Atribución de un recurso externo (clip, foto o música) para la descripción del vídeo. */
+export type Credit = {
+  kind: 'video' | 'image' | 'music'
+  author: string
+  source: string
+  license?: string
+  url?: string
+}
+
 export type JobInput = {
   topic: string
   script?: string
@@ -48,4 +57,6 @@ export type Job = {
   description?: string
   hashtags?: string[]
   music?: string
+  thumbUrl?: string
+  credits?: Credit[]
 }

@@ -1,4 +1,4 @@
-import { Check, Copy, Download, Upload, X } from 'lucide-react'
+import { Check, Copy, Download, Image, Upload, X } from 'lucide-react'
 import { useState } from 'react'
 import type { Job } from '../../server/types'
 
@@ -41,7 +41,7 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
       </div>
 
       {(job.description || job.hashtags?.length) && (
-        <div className="mx-4 mt-3 rounded-2xl bg-ink-800/80 p-4 text-sm">
+        <div className="mx-4 mt-3 max-h-48 overflow-y-auto rounded-2xl bg-ink-800/80 p-4 text-sm">
           <div className="flex items-start justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Descripción para YouTube</p>
             <button
@@ -52,7 +52,7 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
               {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copiado' : 'Copiar'}
             </button>
           </div>
-          {job.description && <p className="mt-2 text-white/80">{job.description}</p>}
+          {job.description && <p className="mt-2 whitespace-pre-line text-white/80">{job.description}</p>}
           {job.hashtags?.length ? <p className="mt-2 text-brand-400">{job.hashtags.join(' ')}</p> : null}
         </div>
       )}
@@ -65,6 +65,16 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
         >
           <Download size={16} /> Descargar
         </a>
+        {job.thumbUrl && (
+          <a
+            href={job.thumbUrl}
+            download={`${job.id}-miniatura.jpg`}
+            aria-label="Descargar miniatura"
+            className="flex h-12 w-12 items-center justify-center rounded-xl bg-ink-700"
+          >
+            <Image size={16} />
+          </a>
+        )}
         <button type="button" onClick={() => onExport(job)} className="btn-primary flex-1">
           <Upload size={16} /> Subir a YouTube
         </button>

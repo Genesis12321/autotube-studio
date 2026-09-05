@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Credit } from './types'
 
 type OpenverseImage = {
   url?: string
@@ -7,10 +8,17 @@ type OpenverseImage = {
   width?: number
   height?: number
   title?: string
+  creator?: string
+  license?: string
+  license_version?: string
+  foreign_landing_url?: string
+  source?: string
   tags?: { name?: string }[]
 }
 type OpenverseResponse = { results?: OpenverseImage[] }
-type PexelsResponse = { photos?: { alt?: string; src?: { large2x?: string; large?: string } }[] }
+type PexelsResponse = {
+  photos?: { alt?: string; url?: string; photographer?: string; src?: { large2x?: string; large?: string } }[]
+}
 type Orientation = 'portrait' | 'landscape'
 type CommonsImageInfo = { thumburl?: string; url?: string; width?: number; height?: number }
 type CommonsResponse = {
@@ -20,7 +28,7 @@ type CommonsResponse = {
  * Candidata con el texto (título y etiquetas) que permite medir si ilustra la escena y un
  * `bonus` por la calidad de la fuente (la fotografía de stock vale más que el archivo suelto).
  */
-type StockResult = { url: string; text: string; bonus: number }
+type StockResult = { url: string; text: string; bonus: number; credit: Credit }
 
 /** Fuentes de Openverse que sí son fotografía de stock, no archivo ni escaneos de museo. */
 const STOCK_SOURCES = 'stocksnap,rawpixel,nappy,wordpress'
@@ -86,7 +94,22 @@ const searchPexels = async (
   const data = (await res.json()) as PexelsResponse
   return (data.photos ?? []).flatMap((p) => {
     const src = p.src?.large2x ?? p.src?.large
-    return src ? [{ url: src, text: p.alt ?? query, bonus: 2 }] : []
+    return src
+      ? [
+          {
+            url: src,
+            text: p.alt ?? query,
+            bonus: 2,
+            credit: {
+              kind: 'image' as const,
+              author: p.photographer ?? 'Pexels',
+              source: 'Pexels',
+              license: 'Pexels License',
+              url: p.url,
+            },
+          },
+        ]
+      : []
   })
 }
 
@@ -145,7 +168,22 @@ const searchOpenverse = async (
     .flatMap((r) => {
       const src = r.url ?? r.thumbnail
       const text = [r.title ?? '', ...(r.tags ?? []).map((t) => t.name ?? '')].join(' ')
-      return src ? [{ url: src, text, bonus }] : []
+      return src
+        ? [
+            {
+              url: src,
+              text,
+              bonus,
+              credit: {
+                kind: 'image' as const,
+                author: r.creator ?? 'Desconocido',
+                source: r.source ?? 'Openverse',
+                license: [r.license?.toUpperCase(), r.license_version].filter(Boolean).join(' '),
+                url: r.foreign_landing_url,
+              },
+            },
+          ]
+        : []
     })
 }
 
@@ -173,7 +211,21 @@ const searchCommons = async (query: string, orientation: Orientation): Promise<S
     .sort((a, b) => Number(fitsOrientation(b.info, orientation)) - Number(fitsOrientation(a.info, orientation)))
     .flatMap(({ info, title }) => {
       const src = info.thumburl ?? info.url
-      return src ? [{ url: src, text: title, bonus: 0 }] : []
+      return src
+        ? [
+            {
+              url: src,
+              text: title,
+              bonus: 0,
+              credit: {
+                kind: 'image' as const,
+                author: title.replace(/^File:/, ''),
+                source: 'Wikimedia Commons',
+                url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(title)}`,
+              },
+            },
+          ]
+        : []
     })
 }
 
@@ -249,7 +301,7 @@ export const fetchStockImage = async (
   workDir: string,
   orientation: Orientation,
   variant = 0,
-): Promise<string | null> => {
+): Promise<{ file: string; credit: Credit } | null> => {
   const keyword = keywords[(index + variant) % Math.max(1, keywords.length)] ?? ''
   const queries = [`${topic} ${keyword}`, topic, keyword].map((q) => q.trim()).filter(Boolean)
   const file = path.join(workDir, `stock-${index}${variant ? `-${variant}` : ''}.jpg`)
@@ -284,7 +336,7 @@ export const fetchStockImage = async (
     for (const { result } of ranked) {
       if (used.has(result.url)) continue
       used.add(result.url)
-      if (await download(result.url, file)) return file
+      if (await download(result.url, file)) return { file, credit: result.credit }
     }
   }
 
@@ -295,8 +347,8 @@ export const fetchStockImage = async (
     .sort((a, b) => b.score - a.score)
     .map((r) => r.result)
   const offset = index % Math.max(1, fallback.length)
-  for (const { url } of [...fallback.slice(offset), ...fallback.slice(0, offset)]) {
-    if (await download(url, file)) return file
+  for (const result of [...fallback.slice(offset), ...fallback.slice(0, offset)]) {
+    if (await download(result.url, file)) return { file, credit: result.credit }
   }
   return null
 }

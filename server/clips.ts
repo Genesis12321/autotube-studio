@@ -1,8 +1,15 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Credit } from './types'
 
 type PexelsVideoFile = { link?: string; width?: number; height?: number; file_type?: string }
-type PexelsVideo = { id: number; duration?: number; url?: string; video_files?: PexelsVideoFile[] }
+type PexelsVideo = {
+  id: number
+  duration?: number
+  url?: string
+  user?: { name?: string; url?: string }
+  video_files?: PexelsVideoFile[]
+}
 type PexelsVideoResponse = { videos?: PexelsVideo[] }
 
 type Orientation = 'portrait' | 'landscape'
@@ -46,7 +53,8 @@ export const fetchStockClip = async (
   workDir: string,
   orientation: Orientation,
   minDuration: number,
-): Promise<string | null> => {
+  variant = 0,
+): Promise<{ file: string; credit: Credit } | null> => {
   const apiKey = process.env.PEXELS_API_KEY?.trim()
   if (!apiKey) return null
 
@@ -56,8 +64,8 @@ export const fetchStockClip = async (
     usedClips.set(workDir, used)
   }
 
-  const keyword = keywords[index % Math.max(1, keywords.length)] ?? ''
-  const file = path.join(workDir, `clip-${index}.mp4`)
+  const keyword = keywords[(index + variant) % Math.max(1, keywords.length)] ?? ''
+  const file = path.join(workDir, `clip-${index}${variant ? `-${variant}` : ''}.mp4`)
 
   for (const query of [`${keyword} ${topic}`, keyword, topic].map((q) => q.trim()).filter(Boolean)) {
     let videos: PexelsVideo[] = []
@@ -84,7 +92,16 @@ export const fetchStockClip = async (
         const buf = Buffer.from(await res.arrayBuffer())
         if (buf.byteLength < 100000) continue
         await writeFile(file, buf)
-        return file
+        return {
+          file,
+          credit: {
+            kind: 'video',
+            author: video.user?.name ?? 'Pexels',
+            source: 'Pexels',
+            license: 'Pexels License',
+            url: video.url,
+          },
+        }
       } catch {
         /* siguiente candidato */
       }

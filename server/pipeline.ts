@@ -12,12 +12,46 @@ import {
   probeDuration,
   renderScene,
   run,
+  makeThumbnail,
   synthVoice,
 } from './render'
 import { fetchStockClip } from './clips'
 import { fetchMusicTrack } from './music'
 import { fetchStockImage } from './stock'
-import type { Job, JobInput, StepId } from './types'
+import type { Credit, Job, JobInput, StepId } from './types'
+
+/** Un mismo autor puede aparecer en varias escenas: la descripción solo lo cita una vez. */
+const dedupeCredits = (credits: Credit[]): Credit[] => {
+  const seen = new Map<string, Credit>()
+  for (const credit of credits) {
+    seen.set(`${credit.kind}|${credit.author}|${credit.source}`, credit)
+  }
+  return [...seen.values()]
+}
+
+const CREDIT_LABEL: Record<Credit['kind'], string> = {
+  video: 'Vídeo',
+  image: 'Imágenes',
+  music: 'Música',
+}
+
+/** Añade a la descripción las atribuciones que exigen las licencias CC-BY. */
+const withCredits = (description: string | undefined, credits: Credit[]): string | undefined => {
+  if (credits.length === 0) return description
+  const lines = (['video', 'image', 'music'] as const).flatMap((kind) => {
+    const group = credits.filter((c) => c.kind === kind)
+    return group.length === 0
+      ? []
+      : [
+          `${CREDIT_LABEL[kind]}:`,
+          ...group.map(
+            (c) =>
+              `• ${c.author} (${c.source}${c.license ? `, ${c.license}` : ''})${c.url ? ` — ${c.url}` : ''}`,
+          ),
+        ]
+  })
+  return [description ?? '', '', 'Créditos:', ...lines].join('\n').trim()
+}
 
 export const DATA_DIR = path.resolve(process.cwd(), 'data')
 export const MEDIA_DIR = path.join(DATA_DIR, 'media')
@@ -131,18 +165,44 @@ const runJob = async (job: Job): Promise<void> => {
     update(job, 'visuals', { status: 'running', progress: 5, detail: 'Buscando imágenes...' })
     // En vídeos largos hay decenas de escenas: se busca por lotes para no saturar las APIs.
     const orientation = job.input.format === 'vertical' ? 'portrait' : 'landscape'
+    const credits: Credit[] = []
+    const take = (asset: { file: string; credit: Credit } | null): string | null => {
+      if (!asset) return null
+      credits.push(asset.credit)
+      return asset.file
+    }
+
     // Con clave de Pexels el fondo es vídeo real en movimiento; la foto queda como respaldo.
+    // Las escenas largas usan dos clips para que el plano cambie por la mitad.
     const clips: (string | null)[] = []
+    const clipsB: (string | null)[] = []
     for (const scene of scenes) {
-      clips.push(
+      const long = (scene.durationSec ?? 0) >= 7
+      const clip = take(
         await fetchStockClip(
           scene.keywords,
           job.input.topic,
           scene.index,
           workDir,
           orientation,
-          scene.durationSec ?? 5,
+          long ? (scene.durationSec ?? 5) / 2 : (scene.durationSec ?? 5),
         ).catch(() => null),
+      )
+      clips.push(clip)
+      clipsB.push(
+        clip && long
+          ? take(
+              await fetchStockClip(
+                scene.keywords,
+                job.input.topic,
+                scene.index,
+                workDir,
+                orientation,
+                (scene.durationSec ?? 5) / 2,
+                1,
+              ).catch(() => null),
+            )
+          : null,
       )
       update(job, 'visuals', {
         status: 'running',
@@ -156,15 +216,14 @@ const runJob = async (job: Job): Promise<void> => {
     const batchSize = 6
     for (let i = 0; i < scenes.length; i += batchSize) {
       const batch = scenes.slice(i, i + batchSize)
-      images.push(
-        ...(await Promise.all(
-          batch.map((scene) =>
-            clips[scene.index]
-              ? null
-              : fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation),
-          ),
-        )),
+      const found = await Promise.all(
+        batch.map((scene) =>
+          clips[scene.index]
+            ? null
+            : fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation),
+        ),
       )
+      images.push(...found.map(take))
       update(job, 'visuals', {
         status: 'running',
         progress: 60 + Math.round((images.length / scenes.length) * 40),
@@ -177,7 +236,7 @@ const runJob = async (job: Job): Promise<void> => {
     for (const scene of scenes) {
       imagesB.push(
         images[scene.index] && (scene.durationSec ?? 0) >= 7
-          ? await fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation, 1)
+          ? take(await fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation, 1))
           : null,
       )
     }
@@ -190,8 +249,9 @@ const runJob = async (job: Job): Promise<void> => {
     )
 
     // Música libre acorde al tono (cacheada entre jobs); si no hay, el vídeo va solo con voz.
-    const musicFile = await fetchMusicTrack(job.input.tone, path.join(DATA_DIR, 'music')).catch(() => null)
-    job.music = musicFile ? path.basename(musicFile, '.mp3') : undefined
+    const music = await fetchMusicTrack(job.input.tone, path.join(DATA_DIR, 'music')).catch(() => null)
+    const musicFile = take(music)
+    job.music = music?.credit.author
 
     update(job, 'render', { status: 'running', progress: 5, detail: 'Componiendo escenas...' })
     const sceneFiles: string[] = []
@@ -204,6 +264,7 @@ const runJob = async (job: Job): Promise<void> => {
         imageFile: images[scene.index],
         imageFileB: imagesB[scene.index],
         clipFile: clips[scene.index],
+        clipFileB: clipsB[scene.index],
         fadeIn: scene.index === 0,
         fadeOut: scene.index === scenes.length - 1,
       })
@@ -220,12 +281,23 @@ const runJob = async (job: Job): Promise<void> => {
     const silentFile = path.join(workDir, 'silent.mp4')
     await concatScenes(sceneFiles, workDir, silentFile)
     await muxVoice(silentFile, voiceTrack, finalFile, musicFile)
-    await run('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error', '-y',
-      '-ss', '0.8', '-i', finalFile, '-frames:v', '1',
+    await makeThumbnail(
+      finalFile,
+      job.title ?? job.input.topic,
+      job.input.format,
       path.join(workDir, 'thumb.jpg'),
-    ])
+      workDir,
+    ).catch(() =>
+      run('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-ss', '0.8', '-i', finalFile, '-frames:v', '1',
+        path.join(workDir, 'thumb.jpg'),
+      ]),
+    )
 
+    job.credits = dedupeCredits(credits)
+    job.description = withCredits(job.description, job.credits)
+    job.thumbUrl = `/media/${job.id}/thumb.jpg`
     job.videoUrl = `/media/${job.id}/final.mp4`
     job.durationSec = await probeDuration(finalFile)
     job.sizeBytes = (await stat(finalFile)).size

@@ -185,13 +185,15 @@ export const renderScene = async (
     imageFile?: string | null
     imageFileB?: string | null
     clipFile?: string | null
+    clipFileB?: string | null
     fadeIn?: boolean
     fadeOut?: boolean
   },
 ): Promise<string> => {
   const { format, duration, workDir, title, imageFile, clipFile, fadeIn, fadeOut } = opts
-  // Solo se usa una segunda imagen cuando la escena da tiempo a que la transición se aprecie.
+  // Solo se usa un segundo plano cuando la escena da tiempo a que la transición se aprecie.
   const imageFileB = duration >= 7 ? opts.imageFileB : null
+  const clipFileB = duration >= 7 ? opts.clipFileB : null
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
   const [c0, c1] = PALETTES[scene.index % PALETTES.length]
   const out = path.join(workDir, `scene-${scene.index}.mp4`)
@@ -220,9 +222,20 @@ export const renderScene = async (
 
   // Con dos imágenes la escena cambia de plano por la mitad con una fundida cruzada.
   const half = duration / 2 + 0.5
-  const background = clipFile
-    ? // El clip se repite en bucle hasta cubrir la escena y se recorta al lienzo.
-      `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=30,setsar=1,format=yuv420p[bg]`
+  // El clip se repite en bucle hasta cubrir su tramo y se recorta al lienzo.
+  const clipPlane = (input: string, out: string, seconds?: number): string =>
+    `[${input}]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=30,setsar=1,format=yuv420p` +
+    (seconds ? `,trim=0:${seconds.toFixed(2)},setpts=PTS-STARTPTS` : '') +
+    `[${out}]`
+
+  const background = clipFile && clipFileB
+    ? [
+        clipPlane('0:v', 'bgA', half),
+        clipPlane('1:v', 'bgB', half),
+        `[bgA][bgB]xfade=transition=fade:duration=0.6:offset=${Math.max(0.1, half - 0.6).toFixed(2)}[bg]`,
+      ].join(';')
+    : clipFile
+    ? clipPlane('0:v', 'bg')
     : imageFile && imageFileB
       ? [
           kenBurns('0:v', 'bgA', half),
@@ -237,7 +250,9 @@ export const renderScene = async (
 
   const filters = [
     background,
-    `[bg]drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.28:t=fill[dim]`,
+    // Contraste, saturación y viñeta: el material de stock sale plano y así parece etalonado.
+    `[bg]eq=contrast=1.08:saturation=1.14:gamma=0.98,vignette=PI/5,` +
+      `drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.24:t=fill[dim]`,
     heading
       ? `[dim]drawtext=fontfile=${FONT}:textfile=${headFile}:fontsize=${headSize}:fontcolor=0xfacc15:line_spacing=12:` +
         `x=(w-text_w)/2:y=h*0.12:box=1:boxcolor=black@0.55:boxborderw=22[head]`
@@ -254,7 +269,10 @@ export const renderScene = async (
   ].join(';')
 
   const videoInput = clipFile
-    ? ['-stream_loop', '-1', '-t', duration.toFixed(2), '-i', clipFile]
+    ? [
+        '-stream_loop', '-1', '-t', (clipFileB ? half : duration).toFixed(2), '-i', clipFile,
+        ...(clipFileB ? ['-stream_loop', '-1', '-t', half.toFixed(2), '-i', clipFileB] : []),
+      ]
     : imageFile
     ? [
         '-loop', '1', '-t', duration.toFixed(2), '-i', imageFile,
@@ -285,6 +303,61 @@ export const concatScenes = async (files: string[], workDir: string, outFile: st
     '-hide_banner', '-loglevel', 'error', '-y',
     '-f', 'concat', '-safe', '0', '-i', listFile,
     '-c', 'copy', '-movflags', '+faststart',
+    outFile,
+  ])
+}
+
+const frameBrightness = async (videoFile: string, at: number): Promise<number> => {
+  const out = await run('ffprobe', [
+    '-v', 'error', '-f', 'lavfi',
+    `movie=${videoFile.replace(/:/g, '\\:')}:seek_point=${at.toFixed(2)},signalstats`,
+    '-show_entries', 'frame_tags=lavfi.signalstats.YAVG',
+    '-read_intervals', '%+#1', '-of', 'csv=p=0',
+  ]).catch(() => '')
+  return Number.parseFloat(out.split('\n')[0]) || 0
+}
+
+/**
+ * Miniatura para YouTube: el fotograma más luminoso del vídeo, oscurecido y con el título en grande.
+ * No corta el flujo si falla: el vídeo ya está montado.
+ */
+export const makeThumbnail = async (
+  videoFile: string,
+  title: string,
+  format: VideoFormat,
+  outFile: string,
+  workDir: string,
+): Promise<void> => {
+  const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
+  const textFile = path.join(workDir, 'thumb.txt')
+  const maxChars = format === 'vertical' ? 14 : 20
+  const text = wrap(title, maxChars)
+  await writeFile(textFile, text, 'utf8')
+  // El cuerpo se ajusta a la línea más larga (~0.6 em por carácter en DejaVu Bold) para no desbordar.
+  const longest = Math.max(...text.split('\n').map((line) => line.length), 1)
+  const fontSize = Math.round(Math.min(h * 0.075, (w * 0.86) / (longest * 0.6)))
+  const duration = await probeDuration(videoFile)
+
+  const candidates = [0.15, 0.3, 0.5, 0.7, 0.85].map((r) => Math.max(0.5, duration * r))
+  const scored = await Promise.all(
+    candidates.map(async (at) => ({ at, luma: await frameBrightness(videoFile, at) })),
+  )
+  const best = scored.reduce((a, b) => (b.luma > a.luma ? b : a))
+
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-ss', best.at.toFixed(2), '-i', videoFile,
+    '-frames:v', '1',
+    '-vf', [
+      `scale=${w}:${h}:force_original_aspect_ratio=increase`,
+      `crop=${w}:${h}`,
+      'eq=contrast=1.15:saturation=1.25',
+      `drawbox=x=0:y=0:w=${w}:h=${h}:color=black@0.35:t=fill`,
+      `drawtext=fontfile=${FONT}:textfile=${textFile}:fontsize=${fontSize}:fontcolor=white:` +
+        `line_spacing=${Math.round(fontSize * 0.25)}:borderw=${Math.round(fontSize * 0.09)}:bordercolor=black@0.9:` +
+        'x=(w-text_w)/2:y=(h-text_h)/2',
+    ].join(','),
+    '-q:v', '3',
     outFile,
   ])
 }
