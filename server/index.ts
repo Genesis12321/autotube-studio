@@ -2,21 +2,44 @@ import cors from 'cors'
 import express from 'express'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
+import { authEnabled, authorized, guard, login } from './auth'
 import { loadEnv } from './env'
-import { MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs, selectThumb } from './pipeline'
+import { DATA_DIR, MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs, selectThumb, setYoutubeId } from './pipeline'
 import { piperModelFor } from './render'
 import type { JobInput, VideoFormat, VoiceId } from './types'
+import {
+  authUrl,
+  disconnect,
+  exchangeCode,
+  loadTokens,
+  status as youtubeStatus,
+  uploadVideo,
+  type Privacy,
+} from './youtube'
 
 loadEnv()
 
 const PORT = Number(process.env.PORT ?? 8787)
 const VOICES: VoiceId[] = ['slt', 'kal16', 'awb', 'rms']
 const FORMATS: VideoFormat[] = ['vertical', 'horizontal']
+const PRIVACIES: Privacy[] = ['private', 'unlisted', 'public']
+const APP_URL = (process.env.PUBLIC_URL ?? 'http://localhost:5174').replace(/\/$/, '')
 
 const app = express()
-app.use(cors())
+app.use(cors({ credentials: true }))
 app.use(express.json({ limit: '1mb' }))
-app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }))
+
+app.get('/api/session', (req, res) => {
+  res.json({ required: authEnabled(), authorized: authorized(req) })
+})
+
+app.post('/api/login', (req, res) => {
+  if (!login(req, res)) return res.status(401).json({ error: 'Contraseña incorrecta' })
+  res.json({ ok: true })
+})
+
+app.use('/api', guard)
+app.use('/media', guard, express.static(MEDIA_DIR, { maxAge: '1h' }))
 
 app.get('/api/health', async (_req, res) => {
   res.json({
@@ -62,6 +85,52 @@ app.post('/api/jobs/:id/thumb', (req, res) => {
   res.json(job)
 })
 
+app.get('/api/youtube/status', (_req, res) => {
+  res.json(youtubeStatus())
+})
+
+app.get('/api/youtube/auth', (_req, res) => {
+  if (!youtubeStatus().configured) return res.status(400).json({ error: 'Faltan las credenciales de Google' })
+  res.redirect(authUrl())
+})
+
+app.get('/api/youtube/callback', async (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code : ''
+  if (!code) return res.redirect(`${APP_URL}/?youtube=error`)
+  try {
+    await exchangeCode(code)
+    res.redirect(`${APP_URL}/?youtube=ok`)
+  } catch {
+    res.redirect(`${APP_URL}/?youtube=error`)
+  }
+})
+
+app.post('/api/youtube/disconnect', async (_req, res) => {
+  await disconnect()
+  res.json(youtubeStatus())
+})
+
+app.post('/api/jobs/:id/publish', async (req, res) => {
+  const job = getJob(req.params.id)
+  if (!job?.videoUrl) return res.status(404).json({ error: 'Vídeo no disponible' })
+  const body = req.body as { privacy?: Privacy }
+  const privacy = PRIVACIES.includes(body.privacy as Privacy) ? (body.privacy as Privacy) : 'private'
+  try {
+    const youtubeId = await uploadVideo({
+      videoFile: path.join(MEDIA_DIR, job.id, 'final.mp4'),
+      thumbFile: job.thumbUrl ? path.join(MEDIA_DIR, job.id, path.basename(job.thumbUrl)) : undefined,
+      title: job.title ?? job.input.topic,
+      description: job.description ?? '',
+      tags: (job.hashtags ?? []).map((tag) => tag.replace(/^#/, '')),
+      privacy,
+    })
+    setYoutubeId(job.id, youtubeId)
+    res.json({ youtubeId, url: `https://youtu.be/${youtubeId}` })
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message })
+  }
+})
+
 app.delete('/api/jobs/:id', async (req, res) => {
   const job = getJob(req.params.id)
   if (!job) return res.status(404).json({ error: 'not found' })
@@ -90,4 +159,5 @@ app.get('/api/stream', (_req, res) => {
 })
 
 await loadJobs()
+await loadTokens(DATA_DIR)
 app.listen(PORT, () => console.log(`[autotube] API escuchando en http://localhost:${PORT}`))

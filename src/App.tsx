@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clapperboard, Library as LibraryIcon, Sparkles, Wifi, WifiOff } from 'lucide-react'
-import { createJob, deleteJob, useJobs, type Job, type JobInput } from './api'
+import { createJob, deleteJob, getSession, useJobs, type Job, type JobInput } from './api'
 import { GeneratorForm } from './components/GeneratorForm'
 import { JobProgress } from './components/JobProgress'
 import { Library } from './components/Library'
+import { LoginGate } from './components/LoginGate'
 import { PlayerSheet } from './components/PlayerSheet'
 import { ToastStack } from './components/Toasts'
 import { useToasts } from './hooks/useToasts'
 
 type Tab = 'create' | 'library'
 
-const App = () => {
+const Studio = () => {
   const { jobs, connected, setJobs } = useJobs()
   const { toasts, push } = useToasts()
   const [tab, setTab] = useState<Tab>('create')
@@ -115,6 +116,20 @@ const App = () => {
       {playing && <PlayerSheet job={playing} onClose={() => setPlaying(null)} onExport={exportToYouTube} />}
     </div>
   )
+}
+
+const App = () => {
+  const [unlocked, setUnlocked] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    void getSession()
+      .then((session) => setUnlocked(!session.required || session.authorized))
+      .catch(() => setUnlocked(true))
+  }, [])
+
+  if (unlocked === null) return null
+  if (!unlocked) return <LoginGate onUnlock={() => setUnlocked(true)} />
+  return <Studio />
 }
 
 export default App

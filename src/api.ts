@@ -3,6 +3,23 @@ import type { Job, JobInput } from '../server/types'
 
 export type { Job, JobInput }
 
+export type Session = { required: boolean; authorized: boolean }
+
+export const getSession = async (): Promise<Session> => {
+  const res = await fetch('/api/session')
+  if (!res.ok) throw new Error('No se pudo comprobar la sesión')
+  return (await res.json()) as Session
+}
+
+export const login = async (password: string): Promise<void> => {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? 'Contraseña incorrecta')
+}
+
 export const createJob = async (input: JobInput): Promise<Job> => {
   const res = await fetch('/api/jobs', {
     method: 'POST',
@@ -19,6 +36,26 @@ export const selectThumb = async (id: string, index: number): Promise<void> => {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ index }),
   })
+}
+
+export type Privacy = 'private' | 'unlisted' | 'public'
+export type YoutubeStatus = { configured: boolean; connected: boolean; channel?: string }
+
+export const youtubeStatus = async (): Promise<YoutubeStatus> => {
+  const res = await fetch('/api/youtube/status')
+  if (!res.ok) throw new Error('No se pudo consultar la conexión con YouTube')
+  return (await res.json()) as YoutubeStatus
+}
+
+export const publishJob = async (id: string, privacy: Privacy): Promise<string> => {
+  const res = await fetch(`/api/jobs/${id}/publish`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ privacy }),
+  })
+  const json = (await res.json()) as { url?: string; error?: string }
+  if (!res.ok || !json.url) throw new Error(json.error ?? 'Error al subir a YouTube')
+  return json.url
 }
 
 export const deleteJob = async (id: string): Promise<void> => {
