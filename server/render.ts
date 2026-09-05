@@ -184,11 +184,12 @@ export const renderScene = async (
     title: string
     imageFile?: string | null
     imageFileB?: string | null
+    clipFile?: string | null
     fadeIn?: boolean
     fadeOut?: boolean
   },
 ): Promise<string> => {
-  const { format, duration, workDir, title, imageFile, fadeIn, fadeOut } = opts
+  const { format, duration, workDir, title, imageFile, clipFile, fadeIn, fadeOut } = opts
   // Solo se usa una segunda imagen cuando la escena da tiempo a que la transición se aprecie.
   const imageFileB = duration >= 7 ? opts.imageFileB : null
   const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
@@ -219,8 +220,10 @@ export const renderScene = async (
 
   // Con dos imágenes la escena cambia de plano por la mitad con una fundida cruzada.
   const half = duration / 2 + 0.5
-  const background =
-    imageFile && imageFileB
+  const background = clipFile
+    ? // El clip se repite en bucle hasta cubrir la escena y se recorta al lienzo.
+      `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=30,setsar=1,format=yuv420p[bg]`
+    : imageFile && imageFileB
       ? [
           kenBurns('0:v', 'bgA', half),
           kenBurns('1:v', 'bgB', half),
@@ -250,7 +253,9 @@ export const renderScene = async (
       .join(',') || 'null'}[v]`,
   ].join(';')
 
-  const videoInput = imageFile
+  const videoInput = clipFile
+    ? ['-stream_loop', '-1', '-t', duration.toFixed(2), '-i', clipFile]
+    : imageFile
     ? [
         '-loop', '1', '-t', duration.toFixed(2), '-i', imageFile,
         ...(imageFileB ? ['-loop', '1', '-t', duration.toFixed(2), '-i', imageFileB] : []),

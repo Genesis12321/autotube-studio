@@ -14,6 +14,7 @@ import {
   run,
   synthVoice,
 } from './render'
+import { fetchStockClip } from './clips'
 import { fetchMusicTrack } from './music'
 import { fetchStockImage } from './stock'
 import type { Job, JobInput, StepId } from './types'
@@ -130,6 +131,27 @@ const runJob = async (job: Job): Promise<void> => {
     update(job, 'visuals', { status: 'running', progress: 5, detail: 'Buscando imágenes...' })
     // En vídeos largos hay decenas de escenas: se busca por lotes para no saturar las APIs.
     const orientation = job.input.format === 'vertical' ? 'portrait' : 'landscape'
+    // Con clave de Pexels el fondo es vídeo real en movimiento; la foto queda como respaldo.
+    const clips: (string | null)[] = []
+    for (const scene of scenes) {
+      clips.push(
+        await fetchStockClip(
+          scene.keywords,
+          job.input.topic,
+          scene.index,
+          workDir,
+          orientation,
+          scene.durationSec ?? 5,
+        ).catch(() => null),
+      )
+      update(job, 'visuals', {
+        status: 'running',
+        progress: Math.round(((scene.index + 1) / scenes.length) * 60),
+        detail: `Clip ${scene.index + 1}/${scenes.length}`,
+      })
+    }
+
+    // Solo se buscan fotos para las escenas que se han quedado sin clip.
     const images: (string | null)[] = []
     const batchSize = 6
     for (let i = 0; i < scenes.length; i += batchSize) {
@@ -137,27 +159,35 @@ const runJob = async (job: Job): Promise<void> => {
       images.push(
         ...(await Promise.all(
           batch.map((scene) =>
-            fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation),
+            clips[scene.index]
+              ? null
+              : fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation),
           ),
         )),
       )
       update(job, 'visuals', {
         status: 'running',
-        progress: Math.round((images.length / scenes.length) * 100),
+        progress: 60 + Math.round((images.length / scenes.length) * 40),
         detail: `Imagen ${images.length}/${scenes.length}`,
       })
     }
-    // Segunda imagen solo en las escenas largas: la escena cambia de plano por la mitad.
+
+    // Segunda imagen solo en las escenas largas sin clip: la escena cambia de plano por la mitad.
     const imagesB: (string | null)[] = []
     for (const scene of scenes) {
       imagesB.push(
-        (scene.durationSec ?? 0) >= 7
+        images[scene.index] && (scene.durationSec ?? 0) >= 7
           ? await fetchStockImage(scene.keywords, job.input.topic, scene.index, workDir, orientation, 1)
           : null,
       )
     }
+    const foundClips = clips.filter(Boolean).length
     const found = images.filter(Boolean).length
-    finishStep(job, 'visuals', `${found}/${scenes.length} imágenes de stock encontradas`)
+    finishStep(
+      job,
+      'visuals',
+      foundClips ? `${foundClips} clips + ${found} imágenes` : `${found}/${scenes.length} imágenes de stock`,
+    )
 
     // Música libre acorde al tono (cacheada entre jobs); si no hay, el vídeo va solo con voz.
     const musicFile = await fetchMusicTrack(job.input.tone, path.join(DATA_DIR, 'music')).catch(() => null)
@@ -173,6 +203,7 @@ const runJob = async (job: Job): Promise<void> => {
         title: job.title ?? job.input.topic,
         imageFile: images[scene.index],
         imageFileB: imagesB[scene.index],
+        clipFile: clips[scene.index],
         fadeIn: scene.index === 0,
         fadeOut: scene.index === scenes.length - 1,
       })
