@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { discard, saveStream } from './download'
 import path from 'node:path'
 import type { Credit } from './types'
 
@@ -280,9 +280,11 @@ const download = async (url: string, file: string): Promise<boolean> => {
   try {
     const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(15000) })
     if (!res.ok) return false
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (buf.byteLength < 8000) return false
-    await writeFile(file, buf)
+    const size = await saveStream(res, file)
+    if (size < 8000) {
+      await discard(file)
+      return false
+    }
     return true
   } catch {
     return false

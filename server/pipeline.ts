@@ -141,8 +141,19 @@ export const createJob = (input: JobInput): Job => {
   }
   jobs.set(job.id, job)
   void persist()
-  void runJob(job)
+  void enqueue(job)
   return job
+}
+
+/**
+ * Un render a la vez: dos ffmpeg simultáneos no caben en los 512 MB de los planes gratuitos
+ * y el kernel mata uno a mitad del montaje.
+ */
+let queue: Promise<void> = Promise.resolve()
+
+const enqueue = (job: Job): Promise<void> => {
+  queue = queue.then(() => runJob(job))
+  return queue
 }
 
 const runJob = async (job: Job): Promise<void> => {
@@ -233,7 +244,7 @@ const runJob = async (job: Job): Promise<void> => {
 
     // Solo se buscan fotos para las escenas que se han quedado sin clip.
     const images: (string | null)[] = []
-    const batchSize = 6
+    const batchSize = process.env.LOW_MEMORY === '1' ? 3 : 6
     for (let i = 0; i < scenes.length; i += batchSize) {
       const batch = scenes.slice(i, i + batchSize)
       const found = await Promise.all(

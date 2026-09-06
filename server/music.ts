@@ -1,4 +1,5 @@
 import { access, readFile, writeFile } from 'node:fs/promises'
+import { discard, saveStream } from './download'
 import path from 'node:path'
 import { ensureDir } from './render'
 import { openverseAuth } from './stock'
@@ -78,8 +79,11 @@ export const fetchMusicTrack = async (
       try {
         const res = await fetch(track.url, { headers: UA, signal: AbortSignal.timeout(30000), redirect: 'follow' })
         if (!res.ok) continue
-        const buf = Buffer.from(await res.arrayBuffer())
-        if (buf.byteLength < 200000) continue
+        const size = await saveStream(res, file)
+        if (size < 200000) {
+          await discard(file)
+          continue
+        }
         const credit: Credit = {
           kind: 'music',
           author: track.creator ?? 'Desconocido',
@@ -87,7 +91,6 @@ export const fetchMusicTrack = async (
           license: [track.license?.toUpperCase(), track.license_version].filter(Boolean).join(' '),
           url: track.foreign_landing_url,
         }
-        await writeFile(file, buf)
         await writeFile(creditFile, JSON.stringify(credit), 'utf8')
         return { file, credit }
       } catch {

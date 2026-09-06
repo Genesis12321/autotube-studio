@@ -5,7 +5,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIPER_VOICES_DIR=/opt/piper-voices \
     DATA_DIR=/home/user/data \
     NODE_ENV=production \
-    PORT=7860
+    PORT=7860 \
+    LOW_MEMORY=1 \
+    OMP_NUM_THREADS=1 \
+    NODE_OPTIONS=--max-old-space-size=256
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg espeak-ng fonts-dejavu-core python3 python3-venv ca-certificates curl \

@@ -1,5 +1,5 @@
-import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { discard, saveStream } from './download'
 import type { Credit } from './types'
 
 type PexelsVideoFile = { link?: string; width?: number; height?: number; file_type?: string }
@@ -89,9 +89,11 @@ export const fetchStockClip = async (
       try {
         const res = await fetch(link, { headers: UA, signal: AbortSignal.timeout(60000), redirect: 'follow' })
         if (!res.ok) continue
-        const buf = Buffer.from(await res.arrayBuffer())
-        if (buf.byteLength < 100000) continue
-        await writeFile(file, buf)
+        const size = await saveStream(res, file)
+        if (size < 100000) {
+          await discard(file)
+          continue
+        }
         return {
           file,
           credit: {

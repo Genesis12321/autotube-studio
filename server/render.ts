@@ -17,9 +17,13 @@ const PALETTES: [string, string][] = [
   ['0x6366f1', '0x22d3ee'],
 ]
 
+/** Un solo hilo de ffmpeg para caber en instancias de 512 MB. */
+const lowMemory = process.env.LOW_MEMORY === '1'
+const threadLimit = ['-threads', '1', '-filter_threads', '1', '-filter_complex_threads', '1']
+
 export const run = (bin: string, args: string[]): Promise<string> =>
   new Promise((resolve, reject) => {
-    const child = spawn(bin, args)
+    const child = spawn(bin, lowMemory && bin === 'ffmpeg' ? [...threadLimit, ...args] : args)
     let stderr = ''
     let stdout = ''
     child.stdout.on('data', (d) => (stdout += d.toString()))
@@ -339,11 +343,12 @@ export const makeThumbnails = async (
   const fontSize = Math.round(Math.min(h * 0.075, (w * 0.86) / (longest * 0.6)))
   const duration = await probeDuration(videoFile)
 
-  const scored = await Promise.all(
-    [0.12, 0.28, 0.45, 0.62, 0.78, 0.9]
-      .map((r) => Math.max(0.5, duration * r))
-      .map(async (at) => ({ at, luma: await frameBrightness(videoFile, at) })),
-  )
+  // Secuencial: seis ffprobe a la vez se comen la memoria de una instancia pequeña.
+  const scored: { at: number; luma: number }[] = []
+  for (const ratio of [0.12, 0.28, 0.45, 0.62, 0.78, 0.9]) {
+    const at = Math.max(0.5, duration * ratio)
+    scored.push({ at, luma: await frameBrightness(videoFile, at) })
+  }
   const picks = scored.sort((a, b) => b.luma - a.luma).slice(0, count)
 
   const files: string[] = []
