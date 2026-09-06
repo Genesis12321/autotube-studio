@@ -3,9 +3,9 @@ FROM node:22-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     PIPER_BIN=/opt/piper-venv/bin/python \
     PIPER_VOICES_DIR=/opt/piper-voices \
-    DATA_DIR=/data \
+    DATA_DIR=/home/user/data \
     NODE_ENV=production \
-    PORT=8080
+    PORT=7860
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg espeak-ng fonts-dejavu-core python3 python3-venv ca-certificates curl \
@@ -25,12 +25,16 @@ RUN mkdir -p /opt/piper-voices && cd /opt/piper-voices && \
       curl -fsSL "$VOICES_BASE/$voice.onnx.json?download=true" -o "$name.onnx.json" ; \
     done
 
-WORKDIR /app
-COPY package.json package-lock.json ./
+RUN userdel -r node 2>/dev/null || true; \
+    useradd -m -u 1000 user && mkdir -p /home/user/data && chown -R user:user /home/user
+USER user
+WORKDIR /home/user/app
+
+COPY --chown=user package.json package-lock.json ./
 RUN npm ci --include=dev
 
-COPY . .
+COPY --chown=user . .
 RUN npm run build
 
-EXPOSE 8080
+EXPOSE 7860
 CMD ["npm", "start"]

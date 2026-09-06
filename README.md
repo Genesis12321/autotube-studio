@@ -1,32 +1,25 @@
-# React + TypeScript + Vite
+---
+title: AutoTube Studio
+emoji: 🎬
+colorFrom: yellow
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+# AutoTube Studio
 
-Currently, two official plugins are available:
+Generador automático de vídeos faceless para YouTube: a partir de un título escribe el guion
+con IA, genera la locución en español (Piper), busca clips y música libres, monta subtítulos
+karaoke y renderiza el MP4 final con ffmpeg.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+La interfaz está protegida por contraseña (`APP_PASSWORD`).
 
-## React Compiler
+## Variables
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- `APP_PASSWORD`: contraseña de acceso.
+- `GEMINI_API_KEY`: guiones con IA.
+- `PEXELS_API_KEY`: clips de vídeo de stock.
+- `OPENVERSE_CLIENT_ID` / `OPENVERSE_CLIENT_SECRET`: imágenes y música libres.
+- `DATA_DIR`: carpeta de trabajos y media.

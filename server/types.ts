@@ -60,4 +60,5 @@ export type Job = {
   thumbUrl?: string
   thumbUrls?: string[]
   credits?: Credit[]
+  youtubeId?: string
 }
