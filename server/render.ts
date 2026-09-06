@@ -21,6 +21,12 @@ const PALETTES: [string, string][] = [
 const lowMemory = process.env.LOW_MEMORY === '1'
 const threadLimit = ['-threads', '1', '-filter_threads', '1', '-filter_complex_threads', '1']
 
+/** 720p en instancias pequeñas: a 1080p los filtros de ffmpeg no caben en 512 MB. */
+export const canvas = (format: VideoFormat): [number, number] => {
+  const [long, short] = lowMemory ? [1280, 720] : [1920, 1080]
+  return format === 'vertical' ? [short, long] : [long, short]
+}
+
 export const run = (bin: string, args: string[]): Promise<string> =>
   new Promise((resolve, reject) => {
     const child = spawn(bin, lowMemory && bin === 'ffmpeg' ? [...threadLimit, ...args] : args)
@@ -198,7 +204,7 @@ export const renderScene = async (
   // Solo se usa un segundo plano cuando la escena da tiempo a que la transición se aprecie.
   const imageFileB = duration >= 7 ? opts.imageFileB : null
   const clipFileB = duration >= 7 ? opts.clipFileB : null
-  const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
+  const [w, h] = canvas(format)
   const [c0, c1] = PALETTES[scene.index % PALETTES.length]
   const out = path.join(workDir, `scene-${scene.index}.mp4`)
 
@@ -218,8 +224,11 @@ export const renderScene = async (
   const frames = Math.max(2, Math.round(duration * 30))
 
   // Ken Burns sobre la imagen de stock; degradado animado si no hay imagen.
+  // Se trabaja a mayor resolución que el lienzo para que el zoom no pixele; el doble no cabe en 512 MB.
+  const zoomW = Math.round(w * (lowMemory ? 1.4 : 2))
+  const zoomH = Math.round(h * (lowMemory ? 1.4 : 2))
   const kenBurns = (input: string, out: string, seconds: number): string =>
-    `[${input}]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
+    `[${input}]scale=${zoomW}:${zoomH}:force_original_aspect_ratio=increase,crop=${zoomW}:${zoomH},` +
     `zoompan=z='min(1+0.0006*on,1.12)':d=${Math.max(2, Math.round(seconds * 30))}:` +
     `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,format=yuv420p,trim=0:${seconds.toFixed(2)},` +
     `setpts=PTS-STARTPTS[${out}]`
@@ -247,7 +256,7 @@ export const renderScene = async (
           `[bgA][bgB]xfade=transition=fade:duration=0.6:offset=${Math.max(0.1, half - 0.6).toFixed(2)}[bg]`,
         ].join(';')
       : imageFile
-        ? `[0:v]scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},` +
+        ? `[0:v]scale=${zoomW}:${zoomH}:force_original_aspect_ratio=increase,crop=${zoomW}:${zoomH},` +
           `zoompan=z='min(1+0.0006*on,1.12)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${w}x${h}:fps=30,` +
           `format=yuv420p[bg]`
         : `[0:v]format=yuv420p[bg]`
@@ -333,7 +342,7 @@ export const makeThumbnails = async (
   workDir: string,
   count = 4,
 ): Promise<string[]> => {
-  const [w, h] = format === 'vertical' ? [1080, 1920] : [1920, 1080]
+  const [w, h] = canvas(format)
   const textFile = path.join(workDir, 'thumb.txt')
   const maxChars = format === 'vertical' ? 14 : 20
   const text = wrap(title, maxChars)

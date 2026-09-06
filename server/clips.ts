@@ -21,7 +21,8 @@ const usedClips = new Map<string, Set<number>>()
 
 /** El menor archivo que aun así cubre el lienzo: descargar 4K por escena es tirar minutos de render. */
 const pickFile = (video: PexelsVideo, orientation: Orientation): string | null => {
-  const minSide = orientation === 'portrait' ? 1080 : 1920
+  // En instancias pequeñas se renderiza a 720p: bajar un 4K a 1080 solo gasta memoria y minutos.
+  const minSide = process.env.LOW_MEMORY === '1' ? 720 : orientation === 'portrait' ? 1080 : 1920
   const usable = (video.video_files ?? [])
     .filter((f) => f.file_type === 'video/mp4' && (f.width ?? 0) > 0 && (f.height ?? 0) > 0)
     .filter((f) => (orientation === 'portrait' ? (f.height ?? 0) >= (f.width ?? 0) : (f.width ?? 0) >= (f.height ?? 0)))
