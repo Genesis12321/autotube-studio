@@ -46,37 +46,42 @@ const fileName = (job: Job): string =>
     .replace(/^-|-$/g, '')
     .slice(0, 60) || job.id}.mp4`
 
-/**
- * Guarda el vídeo en el teléfono. Compartir el archivo es la única vía web para llegar a la
- * galería (iOS y Android); si el navegador no lo soporta, se descarga desde el blob ya
- * cargado, porque `<a download>` sobre una URL protegida por cookie falla en varios móviles.
- */
-export const saveVideo = async (job: Job): Promise<'shared' | 'downloaded'> => {
-  const res = await fetch(`/api/jobs/${job.id}/download`)
-  if (!res.ok) throw new Error('No se pudo descargar el vídeo')
-  const name = fileName(job)
-  const blob = await res.blob()
-  const file = new File([blob], name, { type: 'video/mp4' })
+/** Compartir exige tener el vídeo entero en memoria: por encima de esto el móvil lo descarta. */
+const SHARE_LIMIT = 40 * 1024 * 1024
 
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: job.title ?? job.input.topic })
-      return 'shared'
-    } catch (err) {
-      // El usuario canceló la hoja de compartir: no tiene sentido descargarlo a la fuerza.
-      if ((err as Error).name === 'AbortError') return 'shared'
-    }
-  }
-
-  const url = URL.createObjectURL(blob)
+const streamDownload = (job: Job): void => {
   const link = document.createElement('a')
-  link.href = url
-  link.download = name
+  link.href = `/api/jobs/${job.id}/download`
+  link.download = fileName(job)
   document.body.append(link)
   link.click()
   link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 60000)
-  return 'downloaded'
+}
+
+/**
+ * Guarda el vídeo en el teléfono: compartir el archivo es la única vía web para llegar a la
+ * galería, y para los vídeos largos se delega en el gestor de descargas del navegador.
+ */
+export const saveVideo = async (job: Job): Promise<'shared' | 'downloaded'> => {
+  const name = fileName(job)
+
+  if (!job.sizeBytes || job.sizeBytes > SHARE_LIMIT || !navigator.canShare) {
+    streamDownload(job)
+    return 'downloaded'
+  }
+
+  try {
+    const res = await fetch(`/api/jobs/${job.id}/download`)
+    if (!res.ok) throw new Error('No se pudo descargar el vídeo')
+    const file = new File([await res.blob()], name, { type: 'video/mp4' })
+    if (!navigator.canShare({ files: [file] })) throw new Error('sin soporte')
+    await navigator.share({ files: [file], title: job.title ?? job.input.topic })
+    return 'shared'
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') return 'shared'
+    streamDownload(job)
+    return 'downloaded'
+  }
 }
 
 export type Privacy = 'private' | 'unlisted' | 'public'
