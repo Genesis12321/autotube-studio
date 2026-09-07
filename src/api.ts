@@ -38,6 +38,47 @@ export const selectThumb = async (id: string, index: number): Promise<void> => {
   })
 }
 
+const fileName = (job: Job): string =>
+  `${(job.title ?? job.input.topic)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60) || job.id}.mp4`
+
+/**
+ * Guarda el vídeo en el teléfono. Compartir el archivo es la única vía web para llegar a la
+ * galería (iOS y Android); si el navegador no lo soporta, se descarga desde el blob ya
+ * cargado, porque `<a download>` sobre una URL protegida por cookie falla en varios móviles.
+ */
+export const saveVideo = async (job: Job): Promise<'shared' | 'downloaded'> => {
+  const res = await fetch(`/api/jobs/${job.id}/download`)
+  if (!res.ok) throw new Error('No se pudo descargar el vídeo')
+  const name = fileName(job)
+  const blob = await res.blob()
+  const file = new File([blob], name, { type: 'video/mp4' })
+
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: job.title ?? job.input.topic })
+      return 'shared'
+    } catch (err) {
+      // El usuario canceló la hoja de compartir: no tiene sentido descargarlo a la fuerza.
+      if ((err as Error).name === 'AbortError') return 'shared'
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+  return 'downloaded'
+}
+
 export type Privacy = 'private' | 'unlisted' | 'public'
 export type YoutubeStatus = { configured: boolean; connected: boolean; channel?: string }
 

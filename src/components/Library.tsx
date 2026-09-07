@@ -1,4 +1,6 @@
 import { Download, Film, Loader2, Trash2, Upload } from 'lucide-react'
+import { useState } from 'react'
+import { saveVideo } from '../api'
 import type { Job } from '../../server/types'
 
 const fmtDate = (iso: string) =>
@@ -12,6 +14,17 @@ type Props = {
 }
 
 export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  const save = async (job: Job) => {
+    setSavingId(job.id)
+    try {
+      await saveVideo(job)
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   if (jobs.length === 0) {
     return (
       <div className="card flex flex-col items-center gap-2 py-12 text-center">
@@ -67,16 +80,14 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
             </p>
 
             <div className="mt-2 flex gap-2">
-              <a
-                href={job.videoUrl ?? '#'}
-                download={`${job.id}.mp4`}
-                aria-disabled={!job.videoUrl}
-                className={`flex items-center gap-1 rounded-lg bg-ink-600 px-2.5 py-1.5 text-[11px] ${
-                  job.videoUrl ? '' : 'pointer-events-none opacity-40'
-                }`}
+              <button
+                type="button"
+                onClick={() => void save(job)}
+                disabled={!job.videoUrl || savingId === job.id}
+                className="flex items-center gap-1 rounded-lg bg-ink-600 px-2.5 py-1.5 text-[11px] disabled:opacity-40"
               >
-                <Download size={13} /> Descargar
-              </a>
+                {savingId === job.id ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Guardar
+              </button>
               <button
                 type="button"
                 onClick={() => onExport(job)}

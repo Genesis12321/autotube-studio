@@ -79,6 +79,19 @@ app.post('/api/jobs', (req, res) => {
   res.status(201).json(createJob(input))
 })
 
+/** Descarga con nombre y `attachment`: el atributo `download` del navegador móvil no basta. */
+app.get('/api/jobs/:id/download', (req, res) => {
+  const job = getJob(req.params.id)
+  if (!job?.videoUrl) return res.status(404).json({ error: 'not found' })
+  const slug = (job.title ?? job.input.topic)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60)
+  res.download(path.join(MEDIA_DIR, job.id, 'final.mp4'), `${slug || job.id}.mp4`)
+})
+
 app.post('/api/jobs/:id/thumb', (req, res) => {
   const body = req.body as { index?: number }
   const job = selectThumb(req.params.id, Number(body.index))

@@ -1,6 +1,6 @@
-import { Check, Copy, Download, Image, Upload, X } from 'lucide-react'
+import { Check, Copy, Download, Image, Loader2, Upload, X } from 'lucide-react'
 import { useState } from 'react'
-import { selectThumb } from '../api'
+import { saveVideo, selectThumb } from '../api'
 import type { Job } from '../../server/types'
 
 type Props = {
@@ -11,6 +11,8 @@ type Props = {
 
 export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
   const [copied, setCopied] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const thumbs = job.thumbUrls ?? (job.thumbUrl ? [job.thumbUrl] : [])
   const [thumb, setThumb] = useState(job.thumbUrl ?? thumbs[0])
 
@@ -21,6 +23,17 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
   const metadata = [job.title ?? job.input.topic, '', job.description ?? '', '', (job.hashtags ?? []).join(' ')]
     .join('\n')
     .trim()
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await saveVideo(job)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const copy = async () => {
     await navigator.clipboard.writeText(metadata)
@@ -87,13 +100,15 @@ export const PlayerSheet = ({ job, onClose, onExport }: Props) => {
       )}
 
       <div className="safe-bottom flex gap-2 p-4">
-        <a
-          href={job.videoUrl}
-          download={`${job.id}.mp4`}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink-700 text-sm font-medium"
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink-700 text-sm font-medium disabled:opacity-60"
         >
-          <Download size={16} /> Descargar
-        </a>
+          {saving ? <Loader2 size={16} className="animate-spin" /> : saved ? <Check size={16} /> : <Download size={16} />}
+          {saving ? 'Guardando...' : saved ? 'Guardado' : 'Guardar vídeo'}
+        </button>
         {thumb && (
           <a
             href={thumb}
