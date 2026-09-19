@@ -5,7 +5,19 @@ import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { authEnabled, authorized, guard, login } from './auth'
 import { loadEnv } from './env'
-import { DATA_DIR, MEDIA_DIR, bus, createJob, getJob, listJobs, loadJobs, selectThumb, setYoutubeId } from './pipeline'
+import {
+  DATA_DIR,
+  MEDIA_DIR,
+  bus,
+  cancelJob,
+  createJob,
+  getJob,
+  listJobs,
+  loadJobs,
+  moveJob,
+  selectThumb,
+  setYoutubeId,
+} from './pipeline'
 import { piperModelFor } from './render'
 import type { JobInput, VideoFormat, VoiceId } from './types'
 import {
@@ -90,6 +102,19 @@ app.get('/api/jobs/:id/download', (req, res) => {
     .replace(/^-|-$/g, '')
     .slice(0, 60)
   res.download(path.join(MEDIA_DIR, job.id, 'final.mp4'), `${slug || job.id}.mp4`)
+})
+
+app.post('/api/jobs/:id/move', (req, res) => {
+  const body = req.body as { direction?: 'up' | 'down' }
+  const job = moveJob(req.params.id, body.direction === 'up' ? 'up' : 'down')
+  if (!job) return res.status(409).json({ error: 'El trabajo ya no está en la cola' })
+  res.json(job)
+})
+
+app.post('/api/jobs/:id/cancel', (req, res) => {
+  const job = cancelJob(req.params.id)
+  if (!job) return res.status(409).json({ error: 'Solo se pueden cancelar los trabajos en espera' })
+  res.json(job)
 })
 
 app.post('/api/jobs/:id/thumb', (req, res) => {

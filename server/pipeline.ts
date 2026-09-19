@@ -140,20 +140,71 @@ export const createJob = (input: JobInput): Job => {
     scenes: [],
   }
   jobs.set(job.id, job)
+  pending.push(job.id)
+  syncQueue()
   void persist()
-  void enqueue(job)
+  void pump()
   return job
 }
 
 /**
  * Un render a la vez: dos ffmpeg simultáneos no caben en los 512 MB de los planes gratuitos
- * y el kernel mata uno a mitad del montaje.
+ * y el kernel mata uno a mitad del montaje. La cola es una lista de ids para poder
+ * reordenarla y cancelar trabajos que aún no han empezado.
  */
-let queue: Promise<void> = Promise.resolve()
+const pending: string[] = []
+let active: string | null = null
 
-const enqueue = (job: Job): Promise<void> => {
-  queue = queue.then(() => runJob(job))
-  return queue
+const syncQueue = () => {
+  pending.forEach((id, index) => {
+    const job = jobs.get(id)
+    if (!job || job.queueIndex === index) return
+    job.queueIndex = index
+    bus.emit('job', job)
+  })
+}
+
+const pump = async (): Promise<void> => {
+  if (active) return
+  const id = pending.shift()
+  if (!id) return
+  const job = jobs.get(id)
+  syncQueue()
+  if (!job || job.status !== 'queued') return pump()
+  active = id
+  delete job.queueIndex
+  try {
+    await runJob(job)
+  } finally {
+    active = null
+    void pump()
+  }
+}
+
+/** Sube o baja un puesto en la cola; el trabajo en curso no se mueve. */
+export const moveJob = (id: string, direction: 'up' | 'down'): Job | undefined => {
+  const from = pending.indexOf(id)
+  const to = direction === 'up' ? from - 1 : from + 1
+  if (from < 0 || to < 0 || to >= pending.length) return undefined
+  pending.splice(to, 0, ...pending.splice(from, 1))
+  syncQueue()
+  void persist()
+  return jobs.get(id)
+}
+
+/** Saca de la cola un trabajo que todavía no ha empezado. */
+export const cancelJob = (id: string): Job | undefined => {
+  const index = pending.indexOf(id)
+  const job = jobs.get(id)
+  if (index < 0 || !job) return undefined
+  pending.splice(index, 1)
+  job.status = 'canceled'
+  delete job.queueIndex
+  job.error = 'Cancelado antes de empezar'
+  syncQueue()
+  void persist()
+  bus.emit('job', job)
+  return job
 }
 
 const runJob = async (job: Job): Promise<void> => {

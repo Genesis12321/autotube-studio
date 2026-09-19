@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clapperboard, Library as LibraryIcon, Sparkles, Wifi, WifiOff } from 'lucide-react'
-import { createJob, deleteJob, getSession, useJobs, type Job, type JobInput } from './api'
+import { cancelJob, createJob, deleteJob, getSession, moveJob, useJobs, type Job, type JobInput } from './api'
 import { GeneratorForm } from './components/GeneratorForm'
 import { JobProgress } from './components/JobProgress'
 import { Library } from './components/Library'
 import { LoginGate } from './components/LoginGate'
 import { PlayerSheet } from './components/PlayerSheet'
+import { QueueList } from './components/QueueList'
 import { ToastStack } from './components/Toasts'
 import { useToasts } from './hooks/useToasts'
 
@@ -18,27 +19,33 @@ const Studio = () => {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [playing, setPlaying] = useState<Job | null>(null)
   const [busy, setBusy] = useState(false)
-  const notified = useRef<string | null>(null)
+  // Ids pedidos en esta sesión: solo esos avisan al terminar, no los que ya estaban en la biblioteca.
+  const pending = useRef(new Set<string>())
 
   const activeJob = useMemo(() => jobs.find((j) => j.id === activeId) ?? null, [jobs, activeId])
-  const activeError = activeJob?.error
-  const activeStatus = activeJob?.status
+  const runningJob = useMemo(() => jobs.find((j) => j.status === 'running') ?? null, [jobs])
+  const queued = useMemo(
+    () => jobs.filter((j) => j.status === 'queued').sort((a, b) => (a.queueIndex ?? 0) - (b.queueIndex ?? 0)),
+    [jobs],
+  )
 
+  // Con varios vídeos en cola cada uno avisa al terminar, no solo el último que se pidió.
   useEffect(() => {
-    if (!activeId || (activeStatus !== 'done' && activeStatus !== 'error')) return
-    const key = `${activeId}:${activeStatus}`
-    if (notified.current === key) return
-    notified.current = key
-    if (activeStatus === 'done') push('Vídeo renderizado y listo', 'ok')
-    else push(activeError ?? 'Fallo en el render', 'error')
-  }, [activeId, activeStatus, activeError, push])
+    for (const job of jobs) {
+      if (job.status !== 'done' && job.status !== 'error') continue
+      if (!pending.current.delete(job.id)) continue
+      if (job.status === 'done') push(`"${job.title ?? job.input.topic}" listo`, 'ok')
+      else push(job.error ?? 'Fallo en el render', 'error')
+    }
+  }, [jobs, push])
 
   const submit = async (input: JobInput) => {
     setBusy(true)
     try {
       const job = await createJob(input)
       setActiveId(job.id)
-      push('Trabajo en cola: generando guión', 'info')
+      pending.current.add(job.id)
+      push(job.queueIndex ? `Añadido a la cola (puesto ${job.queueIndex + 1})` : 'Generando vídeo...', 'info')
     } catch (err) {
       push((err as Error).message, 'error')
     } finally {
@@ -51,6 +58,16 @@ const Studio = () => {
     setJobs((prev) => prev.filter((j) => j.id !== job.id))
     if (activeId === job.id) setActiveId(null)
     push('Vídeo eliminado', 'info')
+  }
+
+  const move = async (job: Job, direction: 'up' | 'down') => {
+    await moveJob(job.id, direction)
+  }
+
+  const cancel = async (job: Job) => {
+    await cancelJob(job.id)
+    pending.current.delete(job.id)
+    push('Quitado de la cola', 'info')
   }
 
   const exportToYouTube = (job: Job) =>
@@ -82,7 +99,11 @@ const Studio = () => {
         {tab === 'create' ? (
           <>
             <GeneratorForm busy={busy} onSubmit={submit} />
-            {activeJob && <JobProgress job={activeJob} />}
+            {runningJob && <JobProgress job={runningJob} />}
+            <QueueList jobs={queued} onMove={move} onCancel={cancel} />
+            {activeJob && activeJob.id !== runningJob?.id && activeJob.status !== 'queued' && (
+              <JobProgress job={activeJob} />
+            )}
             {activeJob?.status === 'done' && activeJob.videoUrl && (
               <button className="btn-primary" onClick={() => setPlaying(activeJob)}>
                 <Sparkles size={18} /> Ver vídeo generado

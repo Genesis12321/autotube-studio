@@ -44,7 +44,9 @@ export type Job = {
   id: string
   createdAt: string
   input: JobInput
-  status: 'queued' | 'running' | 'done' | 'error'
+  status: 'queued' | 'running' | 'done' | 'error' | 'canceled'
+  /** Posición en la cola de espera (0 = siguiente); solo en los trabajos en cola. */
+  queueIndex?: number
   steps: Step[]
   scenes: Scene[]
   title?: string

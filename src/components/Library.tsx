@@ -76,7 +76,15 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
                     : 'bg-brand-500/15 text-brand-400'
               }`}
             >
-              {job.status === 'done' ? 'Renderizado' : job.status === 'error' ? 'Error' : 'Renderizando...'}
+              {job.status === 'done'
+                ? 'Renderizado'
+                : job.status === 'error'
+                  ? 'Error'
+                  : job.status === 'canceled'
+                    ? 'Cancelado'
+                    : job.status === 'queued'
+                      ? `En cola${job.queueIndex === undefined ? '' : ` · puesto ${job.queueIndex + 1}`}`
+                      : 'Renderizando...'}
             </p>
 
             <div className="mt-2 flex gap-2">
