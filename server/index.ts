@@ -20,6 +20,7 @@ import {
 } from './pipeline'
 import { piperModelFor } from './render'
 import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
+import { loadUsedTopics, markTopicUsed } from './topics'
 import type { JobInput, Schedule, VideoFormat, VoiceId } from './types'
 import {
   authUrl,
@@ -89,6 +90,7 @@ app.post('/api/jobs', (req, res) => {
     tone: body.tone?.trim() || 'divulgativo',
     targetDuration: Math.min(600, Math.max(20, Number(body.targetDuration) || 45)),
   }
+  void markTopicUsed(input.topic)
   res.status(201).json(createJob(input))
 })
 
@@ -217,5 +219,6 @@ if (existsSync(DIST_DIR)) {
 await loadJobs()
 await loadTokens(DATA_DIR)
 await loadSchedule()
+await loadUsedTopics()
 startScheduler()
 app.listen(PORT, '0.0.0.0', () => console.log(`[autotube] API escuchando en el puerto ${PORT}`))

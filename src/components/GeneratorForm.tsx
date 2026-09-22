@@ -9,7 +9,7 @@ const VOICES: { id: VoiceId; label: string; desc: string }[] = [
   { id: 'rms', label: 'Vega', desc: 'Femenina · Argentina' },
 ]
 
-const TONES = ['divulgativo', 'motivacional', 'misterioso', 'humor', 'noticias']
+const TONES = ['misterioso', 'divulgativo', 'motivacional', 'humor', 'noticias']
 const SHORT_DURATIONS = [30, 45, 60, 90]
 const LONG_DURATIONS = [300, 480, 540, 600]
 

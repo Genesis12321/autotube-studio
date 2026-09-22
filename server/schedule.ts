@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { DATA_DIR, bus, createJob, listJobs, setUploadError, setYoutubeId } from './pipeline'
+import { DATA_DIR, bus, createJob, setUploadError, setYoutubeId } from './pipeline'
 import { ensureDir } from './render'
 import { suggestTopic } from './script'
+import { isUsedTopic, markTopicUsed, usedTopics } from './topics'
 import type { Job, Schedule, ScheduleSlot } from './types'
 import { status as youtubeStatus, uploadVideo } from './youtube'
 
@@ -78,16 +79,14 @@ const localNow = (): { day: string; time: string } => {
 }
 
 const launch = async (slot: ScheduleSlot): Promise<void> => {
-  const recent = listJobs()
-    .slice(0, 20)
-    .map((j) => j.input.topic)
-  const topic = await suggestTopic(recent)
+  const topic = await suggestTopic(usedTopics(), isUsedTopic)
+  await markTopicUsed(topic)
   createJob(
     {
       topic,
       format: slot.format,
       voice: 'slt',
-      tone: 'divulgativo',
+      tone: 'misterioso',
       targetDuration: slot.targetDuration,
     },
     { auto: true, publish: schedule.autoPublish ? schedule.privacy : undefined },

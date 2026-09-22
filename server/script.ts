@@ -198,10 +198,23 @@ type AiScript = {
   scenes: { heading: string; narration: string; keywords?: string[] }[]
 }
 
+/** Línea de estilo del canal: misterios reales, siniestros e irresolubles. */
+const MYSTERY_STYLE = [
+  `Estilo obligatorio: misterio real, siniestro e irresoluble. Cuenta el caso como una historia con tensión creciente,`,
+  `con datos verificables, fechas, lugares y detalles perturbadores concretos, y cierra con las teorías que existen`,
+  `sin dar una solución definitiva. Engancha en el primer segundo con el detalle más inquietante del caso.`,
+  `Nada de consejos, motivación ni tono divulgativo de autoayuda. No inventes hechos que no se hayan documentado.`,
+  `El "title" debe seguir este patrón: gancho con el caso, puntos suspensivos y giro inquietante al final,`,
+  `más uno o dos emojis acordes. Ejemplo exacto de estilo:`,
+  `"El Paso Dyatlov americano: 5 jóvenes subieron a la montaña... y solo hallaron sus huellas en la nieve ❄️🚗".`,
+  `Máximo 100 caracteres, sin comillas y sin escribir la palabra "misterio" al principio.`,
+].join(' ')
+
 const promptFor = (input: JobInput): string =>
   [
-    `Eres guionista de vídeos cortos "faceless" para YouTube.`,
+    `Eres guionista de vídeos "faceless" de misterio para YouTube.`,
     `Tema: ${input.topic}`,
+    input.tone === 'misterioso' ? MYSTERY_STYLE : '',
     input.script?.trim() ? `Guion base del usuario (respétalo): ${input.script}` : '',
     `Tono: ${input.tone}. Formato: ${input.format === 'vertical' ? 'Shorts vertical' : 'horizontal 16:9'}.`,
     `Duración objetivo: ${input.targetDuration} segundos leídos en voz alta,`,
@@ -217,9 +230,20 @@ const promptFor = (input: JobInput): string =>
     .filter(Boolean)
     .join('\n')
 
+/** YouTube rechaza títulos de más de 100 caracteres, así que se recorta por palabras. */
+const capTitle = (title: string): string => {
+  const clean = title.replace(/^["“”']|["“”']$/g, '').trim()
+  if ([...clean].length <= 100) return clean
+  const hook = clean.split(/\.{3}|…/)[0].trim()
+  if (hook && [...hook].length <= 97) return `${hook}...`
+  const cut = [...clean].slice(0, 97).join('')
+  const space = cut.lastIndexOf(' ')
+  return `${(space > 50 ? cut.slice(0, space) : cut).replace(/[\s.,;:¿¡-]+$/, '')}...`
+}
+
 /** Normaliza la respuesta del modelo al formato de escenas del pipeline. */
 const scenesFromAi = (parsed: AiScript, input: JobInput): AiResult => ({
-  title: parsed.title,
+  title: capTitle(parsed.title),
   description: parsed.description,
   hashtags: parsed.hashtags?.map((h) => (h.startsWith('#') ? h : `#${h}`)).slice(0, 8),
   scenes: parsed.scenes.map((s, index) => ({
@@ -284,53 +308,64 @@ const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiRe
   throw lastError
 }
 
+/** Casos de reserva si la IA no responde; se filtran con el historial antes de usarse. */
 const FALLBACK_TOPICS = [
-  'Curiosidades del océano profundo',
-  'Inventos que cambiaron el mundo sin querer',
-  'Misterios del espacio que la ciencia no explica',
-  'Animales con habilidades imposibles',
-  'Civilizaciones perdidas y sus secretos',
-  'Récords humanos que parecen mentira',
-  'Lugares del planeta prohibidos para los turistas',
-  'Descubrimientos arqueológicos recientes',
+  'El crimen sin resolver de la Dalia Negra',
+  'El misterio del barco fantasma Mary Celeste',
+  'La desaparición de la familia Sodder en Nochebuena',
+  'El hombre del sombrero: el caso Isdal en Noruega',
+  'La señal Wow: 72 segundos que nadie ha explicado',
+  'El caso de los niños desaparecidos de Beaumont',
+  'La matanza inexplicable del pueblo de Keddie',
+  'El misterio de los pies humanos de Salish Sea',
+  'La desaparición del vuelo Star Dust y la palabra STENDEC',
+  'El caso Jack el Destripador y la carta From Hell',
+  'El pasajero fantasma del aeropuerto de Tokio',
+  'La muerte imposible de Elisa Bratton en su casa cerrada',
 ]
 
-/** Tema para los vídeos automáticos; se evitan los últimos publicados para no repetirse. */
-export const suggestTopic = async (recent: string[]): Promise<string> => {
+const topicPrompt = (used: string[]): string =>
+  `Dame UNA idea de vídeo en español para un canal de misterios REALES, siniestros e irresolubles:
+casos documentados (desapariciones, crímenes sin resolver, sucesos inexplicables) con tensión, detalles
+perturbadores y teorías abiertas. Nada de divulgación ligera, listas ni autoayuda.
+Responde solo JSON: {"topic":"..."} con un máximo de 70 caracteres, nombrando el caso concreto.
+PROHIBIDO proponer estos casos o cualquier variante suya: ${used.slice(-120).join(' | ') || 'ninguno'}.`
+
+/** Tema para los vídeos automáticos; `isUsed` descarta los casos ya publicados. */
+export const suggestTopic = async (used: string[], isUsed: (topic: string) => boolean): Promise<string> => {
   const apiKey = process.env.GEMINI_API_KEY?.trim()
-  const prompt = `Dame UNA idea de vídeo divulgativo en español para YouTube, concreta y con gancho.
-Responde solo JSON: {"topic":"..."} con un máximo de 70 caracteres.
-No repitas ninguno de estos temas: ${recent.slice(0, 20).join(' | ') || 'ninguno'}.`
 
   if (apiKey) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: 'application/json' },
-            }),
-            signal: AbortSignal.timeout(60000),
-          },
-        )
-        if (!res.ok) throw new Error(`gemini ${model} ${res.status}`)
-        const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-        const text = payload.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text
-        const topic = text ? (JSON.parse(text) as { topic?: string }).topic?.trim() : undefined
-        if (topic) return topic
-      } catch (err) {
-        console.warn('[topic]', (err as Error).message)
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (const model of GEMINI_MODELS) {
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: topicPrompt(used) }] }],
+                generationConfig: { responseMimeType: 'application/json', temperature: 1.2 },
+              }),
+              signal: AbortSignal.timeout(60000),
+            },
+          )
+          if (!res.ok) throw new Error(`gemini ${model} ${res.status}`)
+          const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+          const text = payload.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text
+          const topic = text ? (JSON.parse(text) as { topic?: string }).topic?.trim() : undefined
+          if (topic && !isUsed(topic)) return topic
+        } catch (err) {
+          console.warn('[topic]', (err as Error).message)
+        }
       }
     }
   }
 
-  const free = FALLBACK_TOPICS.filter((t) => !recent.includes(t))
-  const pool = free.length > 0 ? free : FALLBACK_TOPICS
-  return pool[Math.floor(Math.random() * pool.length)]
+  const free = FALLBACK_TOPICS.filter((t) => !isUsed(t))
+  if (free.length > 0) return free[Math.floor(Math.random() * free.length)]
+  return `${FALLBACK_TOPICS[Math.floor(Math.random() * FALLBACK_TOPICS.length)]} (caso ${Date.now() % 1000})`
 }
 
 export const generateScript = async (
