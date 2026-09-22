@@ -119,6 +119,8 @@ type UploadOptions = {
   description: string
   tags: string[]
   privacy: Privacy
+  /** Fecha ISO en la que YouTube debe hacer público el vídeo; exige subirlo como privado. */
+  publishAt?: string
 }
 
 /** Sube el MP4 con el protocolo reanudable y, si hay portada, la fija como miniatura. */
@@ -129,6 +131,7 @@ export const uploadVideo = async ({
   description,
   tags,
   privacy,
+  publishAt,
 }: UploadOptions): Promise<string> => {
   const token = await accessToken()
   const size = (await stat(videoFile)).size
@@ -144,7 +147,9 @@ export const uploadVideo = async ({
       },
       body: JSON.stringify({
         snippet: { title: title.slice(0, 100), description: description.slice(0, 4900), tags },
-        status: { privacyStatus: privacy, selfDeclaredMadeForKids: false },
+        status: publishAt
+          ? { privacyStatus: 'private', publishAt, selfDeclaredMadeForKids: false }
+          : { privacyStatus: privacy, selfDeclaredMadeForKids: false },
       }),
     },
   )

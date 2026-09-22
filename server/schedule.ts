@@ -63,22 +63,50 @@ export const setSchedule = async (patch: Partial<Schedule>): Promise<Schedule> =
   return schedule
 }
 
-/** Hora local (`HH:MM`) y día (`AAAA-MM-DD`) en la zona configurada, sin dependencias externas. */
-const localNow = (): { day: string; time: string } => {
-  const parts = new Intl.DateTimeFormat('sv-SE', {
+const formatter = (): Intl.DateTimeFormat =>
+  new Intl.DateTimeFormat('sv-SE', {
     timeZone: schedule.timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: false,
-  }).format(new Date())
-  const [day, time] = parts.split(' ')
+  })
+
+/** Hora local (`HH:MM`) y día (`AAAA-MM-DD`) en la zona configurada, sin dependencias externas. */
+const localNow = (): { day: string; time: string } => {
+  const [day, time] = formatter().format(new Date()).split(' ')
   return { day, time: time.slice(0, 5) }
 }
 
-const launch = async (slot: ScheduleSlot): Promise<void> => {
+/** Instante UTC que corresponde a `AAAA-MM-DD HH:MM` en la zona configurada. */
+const zonedTime = (day: string, time: string): Date => {
+  const target = Date.parse(`${day}T${time}:00Z`)
+  let guess = new Date(target)
+  for (let i = 0; i < 2; i++) {
+    const [seenDay, seenTime] = formatter().format(guess).split(' ')
+    const offset = Date.parse(`${seenDay}T${seenTime}Z`) - guess.getTime()
+    guess = new Date(target - offset)
+  }
+  return guess
+}
+
+/** Horas de renderizado que se reservan antes de la publicación: el plan gratis es lento. */
+const leadMs = (slot: ScheduleSlot): number => (slot.targetDuration > 120 ? 10 : 3) * 3_600_000
+
+/** Próxima publicación del slot: hoy si aún no ha pasado, si no mañana. */
+const nextPublish = (slot: ScheduleSlot, now: Date): Date => {
+  const { day } = localNow()
+  const today = zonedTime(day, slot.time)
+  if (today.getTime() > now.getTime()) return today
+  const tomorrow = new Date(`${day}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  return zonedTime(tomorrow.toISOString().slice(0, 10), slot.time)
+}
+
+const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
   const topic = await suggestTopic(usedTopics(), isUsedTopic)
   await markTopicUsed(topic)
   createJob(
@@ -89,21 +117,27 @@ const launch = async (slot: ScheduleSlot): Promise<void> => {
       tone: 'misterioso',
       targetDuration: slot.targetDuration,
     },
-    { auto: true, publish: schedule.autoPublish ? schedule.privacy : undefined },
+    {
+      auto: true,
+      publish: schedule.autoPublish ? schedule.privacy : undefined,
+      publishAt: schedule.autoPublish ? publishAt.toISOString() : undefined,
+    },
   )
-  console.log(`[schedule] ${slot.time} → "${topic}"`)
+  console.log(`[schedule] "${topic}" → publicación ${publishAt.toISOString()}`)
 }
 
 const tick = (): void => {
   if (!schedule.enabled) return
-  const { day, time } = localNow()
+  const now = new Date()
   for (const slot of schedule.slots) {
-    if (!slot.enabled || slot.time !== time) continue
-    const key = `${slot.id}@${day}`
+    if (!slot.enabled) continue
+    const publishAt = nextPublish(slot, now)
+    if (publishAt.getTime() - now.getTime() > leadMs(slot)) continue
+    const key = `${slot.id}@${publishAt.toISOString().slice(0, 13)}`
     if (fired.has(key)) continue
     fired.add(key)
     void save()
-    void launch(slot).catch((err) => console.warn('[schedule]', (err as Error).message))
+    void launch(slot, publishAt).catch((err) => console.warn('[schedule]', (err as Error).message))
   }
 }
 
@@ -123,6 +157,10 @@ const autoUpload = async (job: Job): Promise<void> => {
       description: job.description ?? '',
       tags: job.hashtags?.map((h) => h.replace(/^#/, '')) ?? [],
       privacy: job.publish,
+      publishAt:
+        job.publish === 'public' && job.publishAt && new Date(job.publishAt).getTime() > Date.now() + 120_000
+          ? job.publishAt
+          : undefined,
     })
     setYoutubeId(job.id, id)
   } catch (err) {

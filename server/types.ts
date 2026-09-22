@@ -85,5 +85,7 @@ export type Job = {
   /** Creado por el programador; al terminar puede subirse solo a YouTube. */
   auto?: boolean
   publish?: Privacy
+  /** Momento ISO en que YouTube debe hacerlo público (publicación programada). */
+  publishAt?: string
   uploadError?: string
 }

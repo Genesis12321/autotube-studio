@@ -85,7 +85,7 @@ export const AutoPanel = ({ onMessage }: Props) => {
         </header>
 
         <label className="flex items-center justify-between gap-3 text-sm">
-          Crear vídeos solo a estas horas
+          Publicar en YouTube a estas horas
           <input
             type="checkbox"
             checked={schedule.enabled}
@@ -94,7 +94,7 @@ export const AutoPanel = ({ onMessage }: Props) => {
         </label>
 
         <label className="flex items-center justify-between gap-3 text-sm">
-          Subirlos a YouTube al terminar
+          Subirlos solos a YouTube
           <input
             type="checkbox"
             checked={schedule.autoPublish}

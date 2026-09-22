@@ -139,7 +139,10 @@ const update = (job: Job, stepId: StepId, patch: Partial<Job['steps'][number]>) 
 const finishStep = (job: Job, stepId: StepId, detail?: string) =>
   update(job, stepId, { status: 'done', progress: 100, detail })
 
-export const createJob = (input: JobInput, extra: Partial<Pick<Job, 'auto' | 'publish'>> = {}): Job => {
+export const createJob = (
+  input: JobInput,
+  extra: Partial<Pick<Job, 'auto' | 'publish' | 'publishAt'>> = {},
+): Job => {
   const job: Job = {
     id: randomUUID().slice(0, 8),
     createdAt: new Date().toISOString(),
