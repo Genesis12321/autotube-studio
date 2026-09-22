@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { generateScript } from './script'
@@ -96,6 +96,26 @@ export const loadJobs = async (): Promise<void> => {
   } catch {
     /* primera ejecución */
   }
+}
+
+const DAY_MS = 86_400_000
+
+/** La biblioteca se vacía sola: el disco del plan gratis es pequeño y temporal. */
+export const purgeOldJobs = async (maxAgeMs: number = DAY_MS): Promise<number> => {
+  const limit = Date.now() - maxAgeMs
+  let removed = 0
+  for (const job of [...jobs.values()]) {
+    if (job.status === 'running' || job.status === 'queued') continue
+    if (Date.parse(job.createdAt) > limit) continue
+    jobs.delete(job.id)
+    removed++
+    await rm(path.join(MEDIA_DIR, job.id), { recursive: true, force: true })
+  }
+  if (removed > 0) {
+    await persist()
+    bus.emit('purge', removed)
+  }
+  return removed
 }
 
 export const listJobs = (): Job[] => [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))

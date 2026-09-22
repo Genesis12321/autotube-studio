@@ -15,6 +15,7 @@ import {
   listJobs,
   loadJobs,
   moveJob,
+  purgeOldJobs,
   selectThumb,
   setYoutubeId,
 } from './pipeline'
@@ -200,12 +201,15 @@ app.get('/api/stream', (_req, res) => {
   res.write(`event: snapshot\ndata: ${JSON.stringify(listJobs())}\n\n`)
 
   const onJob = (job: unknown) => res.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`)
+  const onPurge = () => res.write(`event: snapshot\ndata: ${JSON.stringify(listJobs())}\n\n`)
   const keepAlive = setInterval(() => res.write(': ping\n\n'), 15000)
   bus.on('job', onJob)
+  bus.on('purge', onPurge)
 
   res.on('close', () => {
     clearInterval(keepAlive)
     bus.off('job', onJob)
+    bus.off('purge', onPurge)
     res.end()
   })
 })
@@ -221,4 +225,9 @@ await loadTokens(DATA_DIR)
 await loadSchedule()
 await loadUsedTopics()
 startScheduler()
+
+/** La biblioteca se limpia sola cada hora: solo se conservan los vídeos de las últimas 24 h. */
+const purge = () => void purgeOldJobs().catch((err) => console.warn('[purge]', (err as Error).message))
+setInterval(purge, 3_600_000).unref()
+purge()
 app.listen(PORT, '0.0.0.0', () => console.log(`[autotube] API escuchando en el puerto ${PORT}`))
