@@ -1,0 +1,15 @@
+name: keepalive
+
+# Render Free duerme el servicio tras ~15 min sin tráfico y entonces el programador
+# de publicaciones no dispara a su hora; esta llamada periódica lo mantiene despierto.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping AutoTube Studio
+        run: curl -sS -o /dev/null -w '%{http_code}\n' --max-time 120 --retry 2 https://autotube-studio.onrender.com/api/health
