@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clapperboard, Library as LibraryIcon, Sparkles, Wifi, WifiOff } from 'lucide-react'
-import { cancelJob, createJob, deleteJob, getSession, moveJob, useJobs, type Job, type JobInput } from './api'
+import { CalendarClock, Clapperboard, Library as LibraryIcon, Sparkles, Wifi, WifiOff } from 'lucide-react'
+import {
+  cancelJob,
+  createJob,
+  deleteJob,
+  getSession,
+  moveJob,
+  publishJob,
+  useJobs,
+  type Job,
+  type JobInput,
+} from './api'
+import { AutoPanel } from './components/AutoPanel'
 import { GeneratorForm } from './components/GeneratorForm'
 import { JobProgress } from './components/JobProgress'
 import { Library } from './components/Library'
@@ -10,7 +21,7 @@ import { QueueList } from './components/QueueList'
 import { ToastStack } from './components/Toasts'
 import { useToasts } from './hooks/useToasts'
 
-type Tab = 'create' | 'library'
+type Tab = 'create' | 'library' | 'auto'
 
 const Studio = () => {
   const { jobs, connected, setJobs } = useJobs()
@@ -70,8 +81,15 @@ const Studio = () => {
     push('Quitado de la cola', 'info')
   }
 
-  const exportToYouTube = (job: Job) =>
-    push(`Exportación a YouTube simulada para "${job.title ?? job.input.topic}" (falta conectar OAuth)`, 'info')
+  const exportToYouTube = async (job: Job) => {
+    push('Subiendo a YouTube...', 'info')
+    try {
+      const url = await publishJob(job.id, 'private')
+      push(`Publicado como privado: ${url}`, 'ok')
+    } catch (err) {
+      push((err as Error).message, 'error')
+    }
+  }
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col">
@@ -110,8 +128,10 @@ const Studio = () => {
               </button>
             )}
           </>
-        ) : (
+        ) : tab === 'library' ? (
           <Library jobs={jobs} onOpen={setPlaying} onDelete={remove} onExport={exportToYouTube} />
+        ) : (
+          <AutoPanel onMessage={push} />
         )}
       </main>
 
@@ -119,6 +139,7 @@ const Studio = () => {
         {([
           { id: 'create', label: 'Generar', icon: Sparkles },
           { id: 'library', label: 'Biblioteca', icon: LibraryIcon },
+          { id: 'auto', label: 'Auto', icon: CalendarClock },
         ] as const).map((item) => (
           <button
             key={item.id}

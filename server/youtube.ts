@@ -2,6 +2,9 @@ import { createReadStream } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
+import type { Privacy } from './types'
+
+export type { Privacy }
 
 const SCOPE = 'https://www.googleapis.com/auth/youtube.upload'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -10,8 +13,6 @@ type Tokens = { refreshToken: string; accessToken?: string; expiresAt?: number; 
 
 let tokens: Tokens | null = null
 let tokenFile = ''
-
-export type Privacy = 'private' | 'unlisted' | 'public'
 
 export const clientId = (): string | undefined => process.env.YOUTUBE_CLIENT_ID
 const clientSecret = (): string | undefined => process.env.YOUTUBE_CLIENT_SECRET

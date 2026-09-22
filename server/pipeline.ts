@@ -117,6 +117,15 @@ export const setYoutubeId = (id: string, youtubeId: string): void => {
   const job = jobs.get(id)
   if (!job) return
   job.youtubeId = youtubeId
+  delete job.uploadError
+  void persist()
+  bus.emit('job', job)
+}
+
+export const setUploadError = (id: string, message: string): void => {
+  const job = jobs.get(id)
+  if (!job) return
+  job.uploadError = message
   void persist()
   bus.emit('job', job)
 }
@@ -130,7 +139,7 @@ const update = (job: Job, stepId: StepId, patch: Partial<Job['steps'][number]>) 
 const finishStep = (job: Job, stepId: StepId, detail?: string) =>
   update(job, stepId, { status: 'done', progress: 100, detail })
 
-export const createJob = (input: JobInput): Job => {
+export const createJob = (input: JobInput, extra: Partial<Pick<Job, 'auto' | 'publish'>> = {}): Job => {
   const job: Job = {
     id: randomUUID().slice(0, 8),
     createdAt: new Date().toISOString(),
@@ -138,6 +147,7 @@ export const createJob = (input: JobInput): Job => {
     status: 'queued',
     steps: emptySteps(),
     scenes: [],
+    ...extra,
   }
   jobs.set(job.id, job)
   pending.push(job.id)

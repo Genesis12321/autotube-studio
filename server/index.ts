@@ -19,7 +19,8 @@ import {
   setYoutubeId,
 } from './pipeline'
 import { piperModelFor } from './render'
-import type { JobInput, VideoFormat, VoiceId } from './types'
+import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
+import type { JobInput, Schedule, VideoFormat, VoiceId } from './types'
 import {
   authUrl,
   disconnect,
@@ -124,6 +125,16 @@ app.post('/api/jobs/:id/thumb', (req, res) => {
   res.json(job)
 })
 
+app.get('/api/schedule', (_req, res) => {
+  res.json(getSchedule())
+})
+
+app.put('/api/schedule', async (req, res) => {
+  const body = req.body as Partial<Schedule>
+  if (body.privacy && !PRIVACIES.includes(body.privacy)) return res.status(400).json({ error: 'privacy inválida' })
+  res.json(await setSchedule(body))
+})
+
 app.get('/api/youtube/status', (_req, res) => {
   res.json(youtubeStatus())
 })
@@ -205,4 +216,6 @@ if (existsSync(DIST_DIR)) {
 
 await loadJobs()
 await loadTokens(DATA_DIR)
+await loadSchedule()
+startScheduler()
 app.listen(PORT, '0.0.0.0', () => console.log(`[autotube] API escuchando en el puerto ${PORT}`))

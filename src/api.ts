@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Job, JobInput } from '../server/types'
+import type { Job, JobInput, Schedule, ScheduleSlot } from '../server/types'
 
-export type { Job, JobInput }
+export type { Job, JobInput, Schedule, ScheduleSlot }
 
 export type Session = { required: boolean; authorized: boolean }
 
@@ -98,6 +98,27 @@ export const saveVideo = async (job: Job): Promise<'shared' | 'downloaded'> => {
 
 export type Privacy = 'private' | 'unlisted' | 'public'
 export type YoutubeStatus = { configured: boolean; connected: boolean; channel?: string }
+
+export const disconnectYoutube = async (): Promise<YoutubeStatus> => {
+  const res = await fetch('/api/youtube/disconnect', { method: 'POST' })
+  return (await res.json()) as YoutubeStatus
+}
+
+export const getSchedule = async (): Promise<Schedule> => {
+  const res = await fetch('/api/schedule')
+  if (!res.ok) throw new Error('No se pudo leer la programación')
+  return (await res.json()) as Schedule
+}
+
+export const saveSchedule = async (schedule: Schedule): Promise<Schedule> => {
+  const res = await fetch('/api/schedule', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(schedule),
+  })
+  if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? 'No se pudo guardar')
+  return (await res.json()) as Schedule
+}
 
 export const youtubeStatus = async (): Promise<YoutubeStatus> => {
   const res = await fetch('/api/youtube/status')

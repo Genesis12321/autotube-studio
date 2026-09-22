@@ -86,6 +86,17 @@ export const Library = ({ jobs, onOpen, onDelete, onExport }: Props) => {
                       ? `En cola${job.queueIndex === undefined ? '' : ` · puesto ${job.queueIndex + 1}`}`
                       : 'Renderizando...'}
             </p>
+            {job.youtubeId && (
+              <a
+                className="mt-1 block truncate text-[10px] text-brand-400"
+                href={`https://youtu.be/${job.youtubeId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Subido a YouTube
+              </a>
+            )}
+            {job.uploadError && <p className="mt-1 text-[10px] text-red-400">{job.uploadError}</p>}
 
             <div className="mt-2 flex gap-2">
               <button

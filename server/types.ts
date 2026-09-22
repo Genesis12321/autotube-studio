@@ -40,6 +40,25 @@ export type JobInput = {
   targetDuration: number
 }
 
+export type Privacy = 'private' | 'unlisted' | 'public'
+
+/** Franja del programador: a esa hora local se crea un vídeo con tema generado por la IA. */
+export type ScheduleSlot = {
+  id: string
+  time: string
+  format: VideoFormat
+  targetDuration: number
+  enabled: boolean
+}
+
+export type Schedule = {
+  enabled: boolean
+  timezone: string
+  autoPublish: boolean
+  privacy: Privacy
+  slots: ScheduleSlot[]
+}
+
 export type Job = {
   id: string
   createdAt: string
@@ -63,4 +82,8 @@ export type Job = {
   thumbUrls?: string[]
   credits?: Credit[]
   youtubeId?: string
+  /** Creado por el programador; al terminar puede subirse solo a YouTube. */
+  auto?: boolean
+  publish?: Privacy
+  uploadError?: string
 }

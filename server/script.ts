@@ -284,6 +284,55 @@ const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiRe
   throw lastError
 }
 
+const FALLBACK_TOPICS = [
+  'Curiosidades del océano profundo',
+  'Inventos que cambiaron el mundo sin querer',
+  'Misterios del espacio que la ciencia no explica',
+  'Animales con habilidades imposibles',
+  'Civilizaciones perdidas y sus secretos',
+  'Récords humanos que parecen mentira',
+  'Lugares del planeta prohibidos para los turistas',
+  'Descubrimientos arqueológicos recientes',
+]
+
+/** Tema para los vídeos automáticos; se evitan los últimos publicados para no repetirse. */
+export const suggestTopic = async (recent: string[]): Promise<string> => {
+  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  const prompt = `Dame UNA idea de vídeo divulgativo en español para YouTube, concreta y con gancho.
+Responde solo JSON: {"topic":"..."} con un máximo de 70 caracteres.
+No repitas ninguno de estos temas: ${recent.slice(0, 20).join(' | ') || 'ninguno'}.`
+
+  if (apiKey) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: 'application/json' },
+            }),
+            signal: AbortSignal.timeout(60000),
+          },
+        )
+        if (!res.ok) throw new Error(`gemini ${model} ${res.status}`)
+        const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+        const text = payload.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text
+        const topic = text ? (JSON.parse(text) as { topic?: string }).topic?.trim() : undefined
+        if (topic) return topic
+      } catch (err) {
+        console.warn('[topic]', (err as Error).message)
+      }
+    }
+  }
+
+  const free = FALLBACK_TOPICS.filter((t) => !recent.includes(t))
+  const pool = free.length > 0 ? free : FALLBACK_TOPICS
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
 export const generateScript = async (
   input: JobInput,
 ): Promise<AiResult & { source: 'openai' | 'gemini' | 'local' }> => {
