@@ -95,8 +95,8 @@ const zonedTime = (day: string, time: string): Date => {
   return guess
 }
 
-/** Horas de renderizado que se reservan antes de la publicación: el plan gratis es lento. */
-const leadMs = (slot: ScheduleSlot): number => (slot.targetDuration > 120 ? 10 : 3) * 3_600_000
+/** Día local (`AAAA-MM-DD`) al que pertenece un instante. */
+const localDay = (date: Date): string => formatter().format(date).slice(0, 10)
 
 /** Próxima publicación del slot: hoy si aún no ha pasado, si no mañana. */
 const nextPublish = (slot: ScheduleSlot, now: Date): Date => {
@@ -128,18 +128,28 @@ const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
   console.log(`[schedule] "${topic}" → publicación ${publishAt.toISOString()}`)
 }
 
+/** Los vídeos del día se encolan de uno en uno y en orden de publicación. */
+let chain: Promise<void> = Promise.resolve()
+
 const tick = (): void => {
   if (!schedule.enabled) return
   const now = new Date()
-  for (const slot of schedule.slots) {
-    if (!slot.enabled) continue
-    const publishAt = nextPublish(slot, now)
-    if (publishAt.getTime() - now.getTime() > leadMs(slot)) continue
+  const today = localDay(now)
+  const pending = schedule.slots
+    .filter((slot) => slot.enabled)
+    .map((slot) => ({ slot, publishAt: nextPublish(slot, now) }))
+    /** Desde las 00:00 se preparan todos los vídeos del día, así hay margen si alguno falla. */
+    .filter(({ publishAt }) => localDay(publishAt) === today)
+    .sort((a, b) => a.publishAt.getTime() - b.publishAt.getTime())
+
+  for (const { slot, publishAt } of pending) {
     const key = `${slot.id}@${publishAt.toISOString().slice(0, 13)}`
     if (fired.has(key)) continue
     fired.add(key)
     void save()
-    void launch(slot, publishAt).catch((err) => console.warn('[schedule]', (err as Error).message))
+    chain = chain.then(() =>
+      launch(slot, publishAt).catch((err) => console.warn('[schedule]', (err as Error).message)),
+    )
   }
 }
 

@@ -259,26 +259,26 @@ const scenesFromAi = (parsed: AiScript, input: JobInput): AiResult => ({
 
 type AiResult = { title: string; scenes: Scene[]; description?: string; hashtags?: string[] }
 
-const generateWithOpenAI = async (input: JobInput, apiKey: string): Promise<AiResult> => {
+const generateWithOpenAI = async (prompt: string, apiKey: string): Promise<unknown> => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: promptFor(input) }],
+      messages: [{ role: 'user', content: prompt }],
     }),
   })
   if (!res.ok) throw new Error(`openai ${res.status}`)
   const payload = (await res.json()) as { choices: { message: { content: string } }[] }
-  return scenesFromAi(JSON.parse(payload.choices[0].message.content) as AiScript, input)
+  return JSON.parse(payload.choices[0].message.content)
 }
 
 /** Modelos por orden de preferencia: si uno está saturado (503) se prueba el siguiente. */
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-flash-lite-latest']
 
 /** Gemini: alternativa con nivel gratuito, útil cuando la cuenta de OpenAI no tiene saldo. */
-const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiResult> => {
+const generateWithGemini = async (prompt: string, apiKey: string): Promise<unknown> => {
   let lastError = new Error('gemini sin modelos')
 
   for (const model of GEMINI_MODELS) {
@@ -289,7 +289,7 @@ const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiRe
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: promptFor(input) }] }],
+            contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: 'application/json' },
           }),
           signal: AbortSignal.timeout(120000),
@@ -299,13 +299,87 @@ const generateWithGemini = async (input: JobInput, apiKey: string): Promise<AiRe
       const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
       const text = payload.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text
       if (!text) throw new Error(`gemini ${model} sin respuesta`)
-      return scenesFromAi(JSON.parse(text) as AiScript, input)
+      return JSON.parse(text)
     } catch (err) {
       lastError = err as Error
       console.warn('[script]', lastError.message)
     }
   }
   throw lastError
+}
+
+/** Pide JSON al primer proveedor disponible: Gemini y, si falla, OpenAI. */
+const requestJson = async (prompt: string): Promise<unknown> => {
+  let lastError = new Error('sin proveedor de IA')
+  const providers = [
+    { key: process.env.GEMINI_API_KEY?.trim(), run: generateWithGemini },
+    { key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },
+  ]
+  for (const { key, run } of providers) {
+    if (!key) continue
+    try {
+      return await run(prompt, key)
+    } catch (err) {
+      lastError = err as Error
+      console.warn('[script] proveedor no disponible:', lastError.message)
+    }
+  }
+  throw lastError
+}
+
+const wordCount = (scenes: Scene[]): number =>
+  scenes.reduce((total, s) => total + s.narration.split(/\s+/).filter(Boolean).length, 0)
+
+const continuationPrompt = (
+  input: JobInput,
+  title: string,
+  scenes: Scene[],
+  missingWords: number,
+  missingScenes: number,
+): string =>
+  [
+    `Continúa el guion de este vídeo de misterio para YouTube sin repetir nada de lo ya escrito.`,
+    `Título: ${title}`,
+    `Caso: ${input.topic}`,
+    `Escenas ya escritas: ${scenes.map((s) => s.narration).join(' ')}`,
+    `Escribe ${missingScenes} escenas más, de unas ${Math.max(20, Math.round(missingWords / missingScenes))} palabras`,
+    `cada una (${missingWords} palabras en total), avanzando la investigación con nuevos datos, pistas y teorías`,
+    `del mismo caso y dejando el final abierto. Español, frases cortas, sin emojis ni markdown.`,
+    `Incluye en "keywords" 3 términos EN INGLÉS para buscar imágenes de stock.`,
+    `Devuelve SOLO JSON {"scenes": [{"heading": string, "narration": string, "keywords": string[]}]}.`,
+  ].join('\n')
+
+/** La IA se queda corta en los vídeos largos: se le piden escenas extra hasta cubrir la duración. */
+const expandToTarget = async (result: AiResult, input: JobInput): Promise<AiResult> => {
+  const budget = Math.round(input.targetDuration * WORDS_PER_SECOND)
+  const perScene = Math.max(20, Math.round(budget / sceneCountFor(input.targetDuration)))
+  let scenes = result.scenes
+
+  for (let attempt = 0; attempt < 4 && wordCount(scenes) < budget * 0.9; attempt += 1) {
+    const missingWords = budget - wordCount(scenes)
+    const slots = sceneCountFor(input.targetDuration) - scenes.length
+    const missingScenes = Math.max(1, Math.min(12, slots, Math.round(missingWords / perScene)))
+    let extra: AiScript['scenes'] = []
+    try {
+      const parsed = (await requestJson(
+        continuationPrompt(input, result.title, scenes, missingWords, missingScenes),
+      )) as { scenes?: AiScript['scenes'] }
+      extra = parsed.scenes ?? []
+    } catch {
+      break
+    }
+    if (extra.length === 0) break
+    scenes = [
+      ...scenes,
+      ...extra.map((s, i) => ({
+        index: scenes.length + i,
+        heading: s.heading?.replace(/^\s*escena\s*\d+\s*[:.-]\s*/i, '').trim() || `Clave ${scenes.length + i}`,
+        narration: s.narration,
+        keywords: s.keywords ?? keywordsFrom(s.narration),
+      })),
+    ]
+  }
+  return { ...result, scenes }
 }
 
 /** Casos de reserva si la IA no responde; se filtran con el historial antes de usarse. */
@@ -371,18 +445,12 @@ export const suggestTopic = async (used: string[], isUsed: (topic: string) => bo
 export const generateScript = async (
   input: JobInput,
 ): Promise<AiResult & { source: 'openai' | 'gemini' | 'local' }> => {
-  const providers = [
-    { source: 'gemini' as const, key: process.env.GEMINI_API_KEY?.trim(), run: generateWithGemini },
-    { source: 'openai' as const, key: process.env.OPENAI_API_KEY?.trim(), run: generateWithOpenAI },
-  ]
-
-  for (const { source, key, run } of providers) {
-    if (!key) continue
-    try {
-      return { ...(await run(input, key)), source }
-    } catch (err) {
-      console.warn(`[script] ${source} no disponible, pruebo el siguiente:`, (err as Error).message)
-    }
+  try {
+    const parsed = (await requestJson(promptFor(input))) as AiScript
+    const source = process.env.GEMINI_API_KEY?.trim() ? ('gemini' as const) : ('openai' as const)
+    return { ...(await expandToTarget(scenesFromAi(parsed, input), input)), source }
+  } catch (err) {
+    console.warn('[script] sin IA, uso el guion local:', (err as Error).message)
   }
   return { ...generateLocal(input), source: 'local' }
 }
