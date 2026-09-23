@@ -19,6 +19,7 @@ import {
   selectThumb,
   setYoutubeId,
 } from './pipeline'
+import { loadNotify } from './notify'
 import { piperModelFor } from './render'
 import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
 import { loadUsedTopics, markTopicUsed } from './topics'
@@ -224,6 +225,7 @@ await loadJobs()
 await loadTokens(DATA_DIR)
 await loadSchedule()
 await loadUsedTopics()
+await loadNotify(DATA_DIR)
 startScheduler()
 
 /** La biblioteca se limpia sola cada hora: solo se conservan los vídeos de las últimas 24 h. */

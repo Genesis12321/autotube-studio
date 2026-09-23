@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { notify } from './notify'
 import { DATA_DIR, bus, createJob, setUploadError, setYoutubeId } from './pipeline'
 import { ensureDir } from './render'
 import { suggestTopic } from './script'
@@ -146,6 +147,10 @@ const autoUpload = async (job: Job): Promise<void> => {
   if (!job.publish || job.status !== 'done' || job.youtubeId || !job.videoUrl) return
   if (!youtubeStatus().connected) {
     setUploadError(job.id, 'Conecta tu cuenta de YouTube para publicar automáticamente')
+    void notify(
+      'AutoTube: tu canal de YouTube está desconectado y no se pueden publicar los vídeos. Entra en https://autotube-studio.onrender.com → Auto → "Conectar mi canal".',
+      'youtube-disconnected',
+    )
     return
   }
   try {
@@ -164,7 +169,9 @@ const autoUpload = async (job: Job): Promise<void> => {
     })
     setYoutubeId(job.id, id)
   } catch (err) {
-    setUploadError(job.id, (err as Error).message)
+    const message = (err as Error).message
+    setUploadError(job.id, message)
+    void notify(`AutoTube: falló la subida de "${job.title ?? job.input.topic}" a YouTube.\n${message}`)
   }
 }
 
