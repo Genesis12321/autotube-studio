@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { notify } from './notify'
-import { DATA_DIR, bus, createJob, setUploadError, setYoutubeId } from './pipeline'
+import { DATA_DIR, bus, createJob, purgeOldJobs, setUploadError, setYoutubeId } from './pipeline'
 import { ensureDir } from './render'
 import { suggestTopic } from './script'
 import { isUsedTopic, markTopicUsed, usedTopics } from './topics'
@@ -142,11 +142,17 @@ const tick = (): void => {
     .filter(({ publishAt }) => localDay(publishAt) === today)
     .sort((a, b) => a.publishAt.getTime() - b.publishAt.getTime())
 
+  let first = true
   for (const { slot, publishAt } of pending) {
     const key = `${slot.id}@${publishAt.toISOString().slice(0, 13)}`
     if (fired.has(key)) continue
     fired.add(key)
     void save()
+    if (first) {
+      first = false
+      /** Al empezar la tanda del día se vacía la biblioteca de la anterior. */
+      chain = chain.then(() => purgeOldJobs(0).then(() => undefined).catch(() => undefined))
+    }
     chain = chain.then(() =>
       launch(slot, publishAt).catch((err) => console.warn('[schedule]', (err as Error).message)),
     )
