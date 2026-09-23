@@ -18,9 +18,9 @@ const DEFAULT: Schedule = {
   autoPublish: true,
   privacy: 'public',
   slots: [
-    { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 45, enabled: true },
+    { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 60, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },
-    { id: 'short-noche', time: '21:30', format: 'vertical', targetDuration: 45, enabled: true },
+    { id: 'short-noche', time: '21:30', format: 'vertical', targetDuration: 60, enabled: true },
   ],
 }
 
