@@ -87,5 +87,7 @@ export type Job = {
   publish?: Privacy
   /** Momento ISO en que YouTube debe hacerlo público (publicación programada). */
   publishAt?: string
+  /** Segundo intento de un vídeo automático que falló; no se reintenta más. */
+  retry?: boolean
   uploadError?: string
 }

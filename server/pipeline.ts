@@ -18,6 +18,7 @@ import {
 import { fetchStockClip } from './clips'
 import { fetchMusicTrack } from './music'
 import { fetchStockImage } from './stock'
+import { notify } from './notify'
 import type { Credit, Job, JobInput, StepId } from './types'
 
 /** Un mismo autor puede aparecer en varias escenas: la descripción solo lo cita una vez. */
@@ -161,7 +162,7 @@ const finishStep = (job: Job, stepId: StepId, detail?: string) =>
 
 export const createJob = (
   input: JobInput,
-  extra: Partial<Pick<Job, 'auto' | 'publish' | 'publishAt'>> = {},
+  extra: Partial<Pick<Job, 'auto' | 'publish' | 'publishAt' | 'retry'>> = {},
 ): Job => {
   const job: Job = {
     id: randomUUID().slice(0, 8),
@@ -238,6 +239,15 @@ export const cancelJob = (id: string): Job | undefined => {
   void persist()
   bus.emit('job', job)
   return job
+}
+
+/** Un vídeo programado se reintenta una vez; si vuelve a fallar se avisa por Telegram. */
+const retryAuto = (job: Job): void => {
+  if (job.retry) {
+    void notify(`AutoTube: no se pudo crear el vídeo "${job.input.topic}".\n${job.error ?? ''}`)
+    return
+  }
+  createJob(job.input, { auto: true, publish: job.publish, publishAt: job.publishAt, retry: true })
 }
 
 const runJob = async (job: Job): Promise<void> => {
@@ -427,6 +437,7 @@ const runJob = async (job: Job): Promise<void> => {
     const running = job.steps.find((s) => s.status === 'running')
     if (running) Object.assign(running, { status: 'error', detail: job.error })
     bus.emit('job', job)
+    if (job.auto) retryAuto(job)
   } finally {
     await persist()
   }
