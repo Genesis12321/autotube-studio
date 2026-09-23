@@ -11,11 +11,12 @@ import { status as youtubeStatus, uploadVideo } from './youtube'
 
 const FILE = path.join(DATA_DIR, 'schedule.json')
 
+/** El disco del hosting es temporal: tras un reinicio se vuelve a estos valores, los de uso diario. */
 const DEFAULT: Schedule = {
-  enabled: false,
+  enabled: true,
   timezone: 'Europe/Madrid',
-  autoPublish: false,
-  privacy: 'private',
+  autoPublish: true,
+  privacy: 'public',
   slots: [
     { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 45, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },

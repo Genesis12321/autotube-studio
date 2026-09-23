@@ -26,8 +26,22 @@ export const loadTokens = async (dataDir: string): Promise<void> => {
   try {
     tokens = JSON.parse(await readFile(tokenFile, 'utf8')) as Tokens
   } catch {
-    tokens = null
+    /** El disco del hosting es temporal: el permiso también se guarda como variable de entorno. */
+    const fromEnv = process.env.YOUTUBE_REFRESH_TOKEN
+    tokens = fromEnv ? { refreshToken: fromEnv } : null
   }
+}
+
+/** Guarda el permiso en el propio servicio de Render para que sobreviva a los reinicios. */
+const rememberRefreshToken = async (refreshToken: string): Promise<void> => {
+  const key = process.env.RENDER_API_KEY
+  const service = process.env.RENDER_SERVICE_ID
+  if (!key || !service || (process.env.YOUTUBE_REFRESH_TOKEN ?? '') === refreshToken) return
+  await fetch(`https://api.render.com/v1/services/${service}/env-vars/YOUTUBE_REFRESH_TOKEN`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ value: refreshToken }),
+  })
 }
 
 const saveTokens = async (): Promise<void> => {
@@ -81,6 +95,7 @@ export const exchangeCode = async (code: string): Promise<void> => {
   }
   tokens.channel = await fetchChannelTitle(tokens.accessToken ?? '')
   await saveTokens()
+  await rememberRefreshToken(refreshToken).catch(() => undefined)
 }
 
 const accessToken = async (): Promise<string> => {
@@ -110,6 +125,7 @@ const fetchChannelTitle = async (token: string): Promise<string | undefined> => 
 export const disconnect = async (): Promise<void> => {
   tokens = null
   await saveTokens()
+  await rememberRefreshToken('').catch(() => undefined)
 }
 
 type UploadOptions = {
