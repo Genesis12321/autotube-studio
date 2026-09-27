@@ -20,6 +20,7 @@ import {
   selectThumb,
   setYoutubeId,
 } from './pipeline'
+import { privacy as privacyPage, terms as termsPage } from './legal'
 import { loadNotify } from './notify'
 import { piperModelFor } from './render'
 import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
@@ -53,6 +54,14 @@ const APP_URL = (process.env.PUBLIC_URL ?? 'http://localhost:5174').replace(/\/$
 const app = express()
 app.use(cors({ credentials: true }))
 app.use(express.json({ limit: '1mb' }))
+
+app.get('/terms', (_req, res) => {
+  res.type('html').send(termsPage())
+})
+
+app.get('/privacy', (_req, res) => {
+  res.type('html').send(privacyPage())
+})
 
 app.get('/api/session', (req, res) => {
   res.json({ required: authEnabled(), authorized: authorized(req) })
