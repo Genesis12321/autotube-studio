@@ -143,6 +143,24 @@ export const setYoutubeId = (id: string, youtubeId: string): void => {
   bus.emit('job', job)
 }
 
+/** Guarda el identificador de la publicación en TikTok para no repetirla. */
+export const setTiktokId = (id: string, tiktokId: string): void => {
+  const job = jobs.get(id)
+  if (!job) return
+  job.tiktokId = tiktokId
+  delete job.tiktokError
+  void persist()
+  bus.emit('job', job)
+}
+
+export const setTiktokError = (id: string, message: string): void => {
+  const job = jobs.get(id)
+  if (!job) return
+  job.tiktokError = message
+  void persist()
+  bus.emit('job', job)
+}
+
 export const setUploadError = (id: string, message: string): void => {
   const job = jobs.get(id)
   if (!job) return

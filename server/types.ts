@@ -56,6 +56,8 @@ export type Schedule = {
   timezone: string
   autoPublish: boolean
   privacy: Privacy
+  /** Sube también a TikTok los vídeos verticales (shorts) en cuanto terminan. */
+  tiktok?: boolean
   slots: ScheduleSlot[]
 }
 
@@ -90,4 +92,7 @@ export type Job = {
   /** Segundo intento de un vídeo automático que falló; no se reintenta más. */
   retry?: boolean
   uploadError?: string
+  /** Identificador de la publicación en TikTok (solo los shorts se suben allí). */
+  tiktokId?: string
+  tiktokError?: string
 }

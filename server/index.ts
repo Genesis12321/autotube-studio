@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express from 'express'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -24,6 +25,13 @@ import { piperModelFor } from './render'
 import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
 import { loadUsedTopics, markTopicUsed } from './topics'
 import type { JobInput, Schedule, VideoFormat, VoiceId } from './types'
+import {
+  authUrl as tiktokAuthUrl,
+  disconnect as tiktokDisconnect,
+  exchangeCode as tiktokExchangeCode,
+  loadTokens as loadTiktokTokens,
+  status as tiktokStatus,
+} from './tiktok'
 import {
   authUrl,
   disconnect,
@@ -164,6 +172,31 @@ app.post('/api/youtube/disconnect', async (_req, res) => {
   res.json(youtubeStatus())
 })
 
+app.get('/api/tiktok/status', (_req, res) => {
+  res.json(tiktokStatus())
+})
+
+app.get('/api/tiktok/auth', (_req, res) => {
+  if (!tiktokStatus().configured) return res.status(400).json({ error: 'Faltan las credenciales de TikTok' })
+  res.redirect(tiktokAuthUrl(randomUUID()))
+})
+
+app.get('/api/tiktok/callback', async (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code : ''
+  if (!code) return res.redirect(`${APP_URL}/?tiktok=error`)
+  try {
+    await tiktokExchangeCode(code)
+    res.redirect(`${APP_URL}/?tiktok=ok`)
+  } catch {
+    res.redirect(`${APP_URL}/?tiktok=error`)
+  }
+})
+
+app.post('/api/tiktok/disconnect', async (_req, res) => {
+  await tiktokDisconnect()
+  res.json(tiktokStatus())
+})
+
 app.post('/api/jobs/:id/publish', async (req, res) => {
   const job = getJob(req.params.id)
   if (!job?.videoUrl) return res.status(404).json({ error: 'Vídeo no disponible' })
@@ -223,6 +256,7 @@ if (existsSync(DIST_DIR)) {
 
 await loadJobs()
 await loadTokens(DATA_DIR)
+await loadTiktokTokens(DATA_DIR)
 await loadSchedule()
 await loadUsedTopics()
 await loadNotify(DATA_DIR)

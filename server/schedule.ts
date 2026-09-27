@@ -2,7 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { notify } from './notify'
-import { DATA_DIR, bus, createJob, purgeOldJobs, setUploadError, setYoutubeId } from './pipeline'
+import {
+  DATA_DIR,
+  bus,
+  createJob,
+  listJobs,
+  purgeOldJobs,
+  setTiktokError,
+  setTiktokId,
+  setUploadError,
+  setYoutubeId,
+} from './pipeline'
+import { status as tiktokStatus, uploadVideo as uploadTiktok } from './tiktok'
 import { ensureDir } from './render'
 import { suggestTopic } from './script'
 import { isUsedTopic, markTopicUsed, usedTopics } from './topics'
@@ -17,6 +28,7 @@ const DEFAULT: Schedule = {
   timezone: 'Europe/Madrid',
   autoPublish: true,
   privacy: 'public',
+  tiktok: true,
   slots: [
     { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 60, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },
@@ -156,6 +168,45 @@ const tick = (): void => {
     chain = chain.then(() =>
       launch(slot, publishAt).catch((err) => console.warn('[schedule]', (err as Error).message)),
     )
+  }
+  tiktokDue()
+}
+
+/** Los shorts (vertical) se publican también en TikTok; el vídeo largo no. */
+const autoTiktok = async (job: Job): Promise<void> => {
+  if (!tiktokStatus().connected) {
+    setTiktokError(job.id, 'Conecta tu cuenta de TikTok para publicar los shorts')
+    void notify(
+      'AutoTube: tu cuenta de TikTok no está conectada y los shorts no se están publicando allí. Entra en https://autotube-studio.onrender.com → Auto → "Conectar TikTok".',
+      'tiktok-disconnected',
+    )
+    return
+  }
+  try {
+    const id = await uploadTiktok({
+      videoFile: path.join(DATA_DIR, 'media', job.id, 'final.mp4'),
+      title: [job.title ?? job.input.topic, ...(job.hashtags ?? [])].join(' '),
+      privacy: schedule.privacy === 'public' ? 'public' : 'private',
+    })
+    setTiktokId(job.id, id)
+  } catch (err) {
+    const message = (err as Error).message
+    setTiktokError(job.id, message)
+    void notify(`AutoTube: falló la subida de "${job.title ?? job.input.topic}" a TikTok.\n${message}`)
+  }
+}
+
+/** TikTok no admite publicación programada: el short se sube a su hora, ya renderizado. */
+const postingToTiktok = new Set<string>()
+
+const tiktokDue = (): void => {
+  if (!schedule.tiktok) return
+  for (const job of listJobs()) {
+    if (!job.auto || job.status !== 'done' || job.input.format !== 'vertical') continue
+    if (job.tiktokId || postingToTiktok.has(job.id) || !job.videoUrl) continue
+    if (job.publishAt && Date.parse(job.publishAt) > Date.now()) continue
+    postingToTiktok.add(job.id)
+    void autoTiktok(job).finally(() => postingToTiktok.delete(job.id))
   }
 }
 

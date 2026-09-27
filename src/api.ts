@@ -120,6 +120,19 @@ export const saveSchedule = async (schedule: Schedule): Promise<Schedule> => {
   return (await res.json()) as Schedule
 }
 
+export type TiktokStatus = { configured: boolean; connected: boolean; user?: string }
+
+export const tiktokStatus = async (): Promise<TiktokStatus> => {
+  const res = await fetch('/api/tiktok/status')
+  if (!res.ok) throw new Error('No se pudo consultar la conexión con TikTok')
+  return (await res.json()) as TiktokStatus
+}
+
+export const disconnectTiktok = async (): Promise<TiktokStatus> => {
+  const res = await fetch('/api/tiktok/disconnect', { method: 'POST' })
+  return (await res.json()) as TiktokStatus
+}
+
 export const youtubeStatus = async (): Promise<YoutubeStatus> => {
   const res = await fetch('/api/youtube/status')
   if (!res.ok) throw new Error('No se pudo consultar la conexión con YouTube')

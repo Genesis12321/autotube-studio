@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Loader2, MonitorPlay } from 'lucide-react'
+import { CalendarClock, Loader2, MonitorPlay, Music2 } from 'lucide-react'
 import {
+  disconnectTiktok,
   disconnectYoutube,
   getSchedule,
   saveSchedule,
+  tiktokStatus,
   youtubeStatus,
   type Privacy,
   type Schedule,
   type ScheduleSlot,
+  type TiktokStatus,
   type YoutubeStatus,
 } from '../api'
 
@@ -22,11 +25,13 @@ type Props = { onMessage: (text: string, kind?: 'ok' | 'error' | 'info') => void
 export const AutoPanel = ({ onMessage }: Props) => {
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [yt, setYt] = useState<YoutubeStatus | null>(null)
+  const [tt, setTt] = useState<TiktokStatus | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     void getSchedule().then(setSchedule).catch(() => undefined)
     void youtubeStatus().then(setYt).catch(() => undefined)
+    void tiktokStatus().then(setTt).catch(() => undefined)
   }, [])
 
   const patchSlot = (id: string, patch: Partial<ScheduleSlot>) =>
@@ -78,6 +83,33 @@ export const AutoPanel = ({ onMessage }: Props) => {
         )}
       </section>
 
+      <section className="card space-y-3">
+        <header className="flex items-center gap-2">
+          <Music2 size={16} className="text-brand-400" />
+          <p className="text-sm font-semibold">TikTok (solo shorts)</p>
+        </header>
+        {!tt?.configured ? (
+          <p className="text-xs text-amber-100/60">
+            Faltan las credenciales de TikTok (Client Key y Secret) en el servidor.
+          </p>
+        ) : tt.connected ? (
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-xs text-amber-100/60">Conectado{tt.user ? `: ${tt.user}` : ''}</p>
+            <button
+              type="button"
+              className="rounded-lg bg-ink-600 px-3 py-1.5 text-xs"
+              onClick={async () => setTt(await disconnectTiktok())}
+            >
+              Desconectar
+            </button>
+          </div>
+        ) : (
+          <a className="btn-primary inline-flex" href="/api/tiktok/auth">
+            <Music2 size={16} /> Conectar TikTok
+          </a>
+        )}
+      </section>
+
       <section className="card space-y-4">
         <header className="flex items-center gap-2">
           <CalendarClock size={16} className="text-brand-400" />
@@ -99,6 +131,15 @@ export const AutoPanel = ({ onMessage }: Props) => {
             type="checkbox"
             checked={schedule.autoPublish}
             onChange={(e) => setSchedule({ ...schedule, autoPublish: e.target.checked })}
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3 text-sm">
+          Publicar los shorts también en TikTok
+          <input
+            type="checkbox"
+            checked={schedule.tiktok !== false}
+            onChange={(e) => setSchedule({ ...schedule, tiktok: e.target.checked })}
           />
         </label>
 
@@ -155,7 +196,8 @@ export const AutoPanel = ({ onMessage }: Props) => {
         </ul>
 
         <p className="text-[11px] text-amber-100/45">
-          Horario de {schedule.timezone}. El tema y el título los elige la IA en cada vídeo.
+          Horario de {schedule.timezone}. El tema y el título los elige la IA en cada vídeo. En TikTok no hay
+          programación: el short se publica a su hora, ya renderizado.
         </p>
 
         <button type="button" className="btn-primary w-full" disabled={saving} onClick={save}>
