@@ -24,12 +24,14 @@ export const redirectUri = (): string =>
 export const loadTokens = async (dataDir: string): Promise<void> => {
   tokenFile = path.join(dataDir, 'youtube.json')
   try {
-    tokens = JSON.parse(await readFile(tokenFile, 'utf8')) as Tokens
+    const saved = JSON.parse(await readFile(tokenFile, 'utf8')) as Tokens | null
+    tokens = saved?.refreshToken ? saved : null
   } catch {
-    /** El disco del hosting es temporal: el permiso también se guarda como variable de entorno. */
-    const fromEnv = process.env.YOUTUBE_REFRESH_TOKEN
-    tokens = fromEnv ? { refreshToken: fromEnv } : null
+    tokens = null
   }
+  /** Un fichero vacío o caducado no debe tapar el permiso guardado en la variable de entorno. */
+  const fromEnv = process.env.YOUTUBE_REFRESH_TOKEN
+  if (!tokens?.refreshToken && fromEnv) tokens = { refreshToken: fromEnv }
 }
 
 /** Guarda el permiso en el propio servicio de Render para que sobreviva a los reinicios. */

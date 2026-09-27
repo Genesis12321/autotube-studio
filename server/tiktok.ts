@@ -25,12 +25,14 @@ export const redirectUri = (): string =>
 export const loadTokens = async (dataDir: string): Promise<void> => {
   tokenFile = path.join(dataDir, 'tiktok.json')
   try {
-    tokens = JSON.parse(await readFile(tokenFile, 'utf8')) as Tokens
+    const saved = JSON.parse(await readFile(tokenFile, 'utf8')) as Tokens | null
+    tokens = saved?.refreshToken ? saved : null
   } catch {
-    /** El disco del hosting es temporal: el permiso también se guarda como variable de entorno. */
-    const fromEnv = process.env.TIKTOK_REFRESH_TOKEN
-    tokens = fromEnv ? { refreshToken: fromEnv } : null
+    tokens = null
   }
+  /** El disco del hosting es temporal: el permiso también se guarda como variable de entorno. */
+  const fromEnv = process.env.TIKTOK_REFRESH_TOKEN
+  if (!tokens?.refreshToken && fromEnv) tokens = { refreshToken: fromEnv }
 }
 
 const saveTokens = async (): Promise<void> => {
