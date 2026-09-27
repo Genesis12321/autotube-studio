@@ -18,7 +18,7 @@ import { ensureDir } from './render'
 import { suggestTopic } from './script'
 import { isUsedTopic, markTopicUsed, usedTopics } from './topics'
 import type { Job, Schedule, ScheduleSlot } from './types'
-import { status as youtubeStatus, uploadVideo } from './youtube'
+import { checkConnection, status as youtubeStatus, uploadVideo } from './youtube'
 
 const FILE = path.join(DATA_DIR, 'schedule.json')
 
@@ -243,6 +243,15 @@ const autoUpload = async (job: Job): Promise<void> => {
   }
 }
 
+/** Google caduca el permiso cuando la app OAuth sigue en pruebas: avisar antes de perder una subida. */
+const watchYoutube = async (): Promise<void> => {
+  if (await checkConnection()) return
+  void notify(
+    'AutoTube: el permiso de YouTube ha caducado y los vídeos no se pueden subir. Entra en https://autotube-studio.onrender.com → Auto → "Conectar mi canal".',
+    'youtube-disconnected',
+  )
+}
+
 export const startScheduler = (): void => {
   const uploading = new Set<string>()
   bus.on('job', (job: Job) => {
@@ -251,5 +260,7 @@ export const startScheduler = (): void => {
     void autoUpload(job).finally(() => uploading.delete(job.id))
   })
   setInterval(tick, 30_000).unref()
+  setInterval(() => void watchYoutube(), 3_600_000).unref()
   tick()
+  void watchYoutube()
 }

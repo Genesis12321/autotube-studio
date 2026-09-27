@@ -101,16 +101,34 @@ export const exchangeCode = async (code: string): Promise<void> => {
 const accessToken = async (): Promise<string> => {
   if (!tokens?.refreshToken) throw new Error('Conecta tu cuenta de YouTube primero')
   if (tokens.accessToken && tokens.expiresAt && tokens.expiresAt > Date.now() + 30_000) return tokens.accessToken
-  const json = await postForm({
-    refresh_token: tokens.refreshToken,
-    client_id: clientId() ?? '',
-    client_secret: clientSecret() ?? '',
-    grant_type: 'refresh_token',
-  })
+  let json: Record<string, unknown>
+  try {
+    json = await postForm({
+      refresh_token: tokens.refreshToken,
+      client_id: clientId() ?? '',
+      client_secret: clientSecret() ?? '',
+      grant_type: 'refresh_token',
+    })
+  } catch (err) {
+    /** Google revoca el permiso (app en pruebas: 7 días); sin esto la app se creería conectada. */
+    await disconnect().catch(() => undefined)
+    throw err
+  }
   tokens.accessToken = String(json.access_token)
   tokens.expiresAt = Date.now() + Number(json.expires_in ?? 3500) * 1000
   await saveTokens()
   return tokens.accessToken
+}
+
+/** Renueva el permiso para detectar una caducidad antes de que falle una subida. */
+export const checkConnection = async (): Promise<boolean> => {
+  if (!tokens?.refreshToken) return false
+  try {
+    await accessToken()
+    return true
+  } catch {
+    return false
+  }
 }
 
 const fetchChannelTitle = async (token: string): Promise<string | undefined> => {
