@@ -28,7 +28,7 @@ const DEFAULT: Schedule = {
   timezone: 'Europe/Madrid',
   autoPublish: true,
   privacy: 'public',
-  tiktok: true,
+  tiktok: false,
   slots: [
     { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 60, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },
