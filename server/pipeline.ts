@@ -85,17 +85,29 @@ const persist = async () => {
 }
 
 export const loadJobs = async (): Promise<void> => {
+  const interrupted: Job[] = []
   try {
     const raw = await readFile(JOBS_FILE, 'utf8')
     for (const job of JSON.parse(raw) as Job[]) {
       if (job.status === 'running' || job.status === 'queued') {
         job.status = 'error'
         job.error = 'Interrumpido al reiniciar el servidor'
+        if (job.auto) interrupted.push(job)
       }
       jobs.set(job.id, job)
     }
   } catch {
     /* primera ejecución */
+  }
+  /** Un reinicio no debe hacer perder una franja: se rehace si aún da tiempo a publicarla. */
+  for (const job of interrupted) {
+    if (job.publishAt && Date.parse(job.publishAt) < Date.now()) continue
+    createJob(job.input, {
+      auto: true,
+      publish: job.publish,
+      publishAt: job.publishAt,
+      retry: job.retry,
+    })
   }
 }
 
