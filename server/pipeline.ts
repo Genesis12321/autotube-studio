@@ -102,6 +102,7 @@ export const loadJobs = async (): Promise<void> => {
   /** Un reinicio no debe hacer perder una franja: se rehace si aún da tiempo a publicarla. */
   for (const job of interrupted) {
     if (job.publishAt && Date.parse(job.publishAt) < Date.now()) continue
+    if (slotTaken(job.publishAt)) continue
     createJob(job.input, {
       auto: true,
       publish: job.publish,
@@ -130,6 +131,13 @@ export const purgeOldJobs = async (maxAgeMs: number = DAY_MS): Promise<number> =
   }
   return removed
 }
+
+/** Una franja horaria, un solo vídeo: evita duplicados tras un reinicio o un reintento. */
+export const slotTaken = (publishAt?: string): boolean =>
+  Boolean(publishAt) &&
+  [...jobs.values()].some(
+    (job) => job.publishAt === publishAt && job.status !== 'error' && job.status !== 'canceled',
+  )
 
 export const listJobs = (): Job[] => [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 export const getJob = (id: string): Job | undefined => jobs.get(id)
@@ -273,6 +281,7 @@ export const cancelJob = (id: string): Job | undefined => {
 
 /** Un vídeo programado se reintenta una vez; si vuelve a fallar se avisa por Telegram. */
 const retryAuto = (job: Job): void => {
+  if (slotTaken(job.publishAt)) return
   if (job.retry) {
     void notify(`AutoTube: no se pudo crear el vídeo "${job.input.topic}".\n${job.error ?? ''}`)
     return

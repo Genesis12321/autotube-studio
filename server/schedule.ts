@@ -11,6 +11,7 @@ import {
   setTiktokError,
   setTiktokId,
   setUploadError,
+  slotTaken,
   setYoutubeId,
 } from './pipeline'
 import { status as tiktokStatus, uploadVideo as uploadTiktok } from './tiktok'
@@ -39,6 +40,8 @@ const DEFAULT: Schedule = {
 let schedule: Schedule = DEFAULT
 /** Marcas `slotId@AAAA-MM-DD` ya lanzadas, para no repetir si el minuto se comprueba dos veces. */
 const fired = new Set<string>()
+/** Un despliegue estrena disco: se pierde el rastro de la tanda del día. */
+let freshDisk = false
 
 const save = async (): Promise<void> => {
   await ensureDir(DATA_DIR)
@@ -52,6 +55,7 @@ export const loadSchedule = async (): Promise<void> => {
     for (const key of raw.fired ?? []) fired.add(key)
   } catch {
     schedule = DEFAULT
+    freshDisk = true
   }
 }
 
@@ -121,6 +125,7 @@ const nextPublish = (slot: ScheduleSlot, now: Date): Date => {
 }
 
 const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
+  if (slotTaken(publishAt.toISOString())) return
   const topic = await suggestTopic(usedTopics(), isUsedTopic)
   await markTopicUsed(topic)
   createJob(
@@ -143,16 +148,34 @@ const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
 /** Los vídeos del día se encolan de uno en uno y en orden de publicación. */
 let chain: Promise<void> = Promise.resolve()
 
-const tick = (): void => {
-  if (!schedule.enabled) return
-  const now = new Date()
+const slotsOfDay = (now: Date): { slot: ScheduleSlot; publishAt: Date }[] => {
   const today = localDay(now)
-  const pending = schedule.slots
+  return schedule.slots
     .filter((slot) => slot.enabled)
     .map((slot) => ({ slot, publishAt: nextPublish(slot, now) }))
     /** Desde las 00:00 se preparan todos los vídeos del día, así hay margen si alguno falla. */
     .filter(({ publishAt }) => localDay(publishAt) === today)
     .sort((a, b) => a.publishAt.getTime() - b.publishAt.getTime())
+}
+
+/**
+ * Tras un despliegue la biblioteca aparece vacía aunque los vídeos del día ya estén subidos:
+ * sin este freno el programador repetiría la tanda y YouTube acabaría con vídeos duplicados.
+ */
+const skipTodayAfterDeploy = (): void => {
+  const now = new Date()
+  if (!freshDisk || listJobs().length > 0 || localNow().time < '00:30') return
+  for (const { slot, publishAt } of slotsOfDay(now)) {
+    fired.add(`${slot.id}@${publishAt.toISOString().slice(0, 13)}`)
+  }
+  void save()
+  void notify('AutoTube: la tanda de hoy ya estaba hecha antes de la actualización, así que no se repite. Mañana sigue como siempre.')
+}
+
+const tick = (): void => {
+  if (!schedule.enabled) return
+  const now = new Date()
+  const pending = slotsOfDay(now)
 
   let first = true
   for (const { slot, publishAt } of pending) {
@@ -259,6 +282,7 @@ export const startScheduler = (): void => {
     uploading.add(job.id)
     void autoUpload(job).finally(() => uploading.delete(job.id))
   })
+  skipTodayAfterDeploy()
   setInterval(tick, 30_000).unref()
   setInterval(() => void watchYoutube(), 3_600_000).unref()
   tick()
