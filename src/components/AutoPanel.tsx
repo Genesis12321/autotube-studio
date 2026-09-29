@@ -191,6 +191,14 @@ export const AutoPanel = ({ onMessage }: Props) => {
                   </option>
                 ))}
               </select>
+              <select
+                className="rounded-lg bg-ink-800 px-2 py-1 text-sm"
+                value={slot.youtube === false ? 'no' : 'si'}
+                onChange={(e) => patchSlot(slot.id, { youtube: e.target.value === 'si' })}
+              >
+                <option value="si">Sube a YouTube</option>
+                <option value="no">Solo biblioteca</option>
+              </select>
             </li>
           ))}
         </ul>

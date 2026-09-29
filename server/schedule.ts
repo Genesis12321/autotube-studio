@@ -34,6 +34,9 @@ const DEFAULT: Schedule = {
     { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 60, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },
     { id: 'short-noche', time: '21:30', format: 'vertical', targetDuration: 60, enabled: true },
+    /** Shorts propios de TikTok: se crean para descargarlos a mano, nunca van a YouTube. */
+    { id: 'tiktok-tarde', time: '16:00', format: 'vertical', targetDuration: 60, enabled: true, youtube: false },
+    { id: 'tiktok-noche', time: '19:00', format: 'vertical', targetDuration: 60, enabled: true, youtube: false },
   ],
 }
 
@@ -67,6 +70,7 @@ const sanitizeSlot = (slot: Partial<ScheduleSlot>, index: number): ScheduleSlot 
   format: slot.format === 'horizontal' ? 'horizontal' : 'vertical',
   targetDuration: Math.min(600, Math.max(20, Number(slot.targetDuration) || 45)),
   enabled: slot.enabled !== false,
+  youtube: slot.youtube !== false,
 })
 
 export const setSchedule = async (patch: Partial<Schedule>): Promise<Schedule> => {
@@ -126,6 +130,7 @@ const nextPublish = (slot: ScheduleSlot, now: Date): Date => {
 
 const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
   if (slotTaken(publishAt.toISOString())) return
+  const toYoutube = schedule.autoPublish && slot.youtube !== false
   const topic = await suggestTopic(usedTopics(), isUsedTopic)
   await markTopicUsed(topic)
   createJob(
@@ -138,11 +143,12 @@ const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
     },
     {
       auto: true,
-      publish: schedule.autoPublish ? schedule.privacy : undefined,
-      publishAt: schedule.autoPublish ? publishAt.toISOString() : undefined,
+      publish: toYoutube ? schedule.privacy : undefined,
+      /** La hora marca la franja aunque el vídeo no se suba: así no se repite tras un reinicio. */
+      publishAt: publishAt.toISOString(),
     },
   )
-  console.log(`[schedule] "${topic}" → publicación ${publishAt.toISOString()}`)
+  console.log(`[schedule] "${topic}" → ${toYoutube ? 'publicación' : 'solo biblioteca'} ${publishAt.toISOString()}`)
 }
 
 /** Los vídeos del día se encolan de uno en uno y en orden de publicación. */

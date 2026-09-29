@@ -49,6 +49,8 @@ export type ScheduleSlot = {
   format: VideoFormat
   targetDuration: number
   enabled: boolean
+  /** Franja solo para TikTok: el vídeo se crea pero no se sube a YouTube. */
+  youtube?: boolean
 }
 
 export type Schedule = {
