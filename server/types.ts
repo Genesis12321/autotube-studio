@@ -93,6 +93,8 @@ export type Job = {
   publishAt?: string
   /** Segundo intento de un vídeo automático que falló; no se reintenta más. */
   retry?: boolean
+  /** Franja y día que cubre este vídeo (`slotId@AAAA-MM-DD`): una franja, un vídeo. */
+  slotKey?: string
   uploadError?: string
   /** Identificador de la publicación en TikTok (solo los shorts se suben allí). */
   tiktokId?: string

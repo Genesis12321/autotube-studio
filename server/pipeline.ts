@@ -102,12 +102,13 @@ export const loadJobs = async (): Promise<void> => {
   /** Un reinicio no debe hacer perder una franja: se rehace si aún da tiempo a publicarla. */
   for (const job of interrupted) {
     if (job.publishAt && Date.parse(job.publishAt) < Date.now()) continue
-    if (slotTaken(job.publishAt)) continue
+    if (slotTaken(job.slotKey)) continue
     createJob(job.input, {
       auto: true,
       publish: job.publish,
       publishAt: job.publishAt,
       retry: job.retry,
+      slotKey: job.slotKey,
     })
   }
 }
@@ -132,11 +133,11 @@ export const purgeOldJobs = async (maxAgeMs: number = DAY_MS): Promise<number> =
   return removed
 }
 
-/** Una franja horaria, un solo vídeo: evita duplicados tras un reinicio o un reintento. */
-export const slotTaken = (publishAt?: string): boolean =>
-  Boolean(publishAt) &&
+/** Una franja, un solo vídeo: evita duplicados tras un reinicio o un reintento. */
+export const slotTaken = (slotKey?: string): boolean =>
+  Boolean(slotKey) &&
   [...jobs.values()].some(
-    (job) => job.publishAt === publishAt && job.status !== 'error' && job.status !== 'canceled',
+    (job) => job.slotKey === slotKey && job.status !== 'error' && job.status !== 'canceled',
   )
 
 export const listJobs = (): Job[] => [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -200,7 +201,7 @@ const finishStep = (job: Job, stepId: StepId, detail?: string) =>
 
 export const createJob = (
   input: JobInput,
-  extra: Partial<Pick<Job, 'auto' | 'publish' | 'publishAt' | 'retry'>> = {},
+  extra: Partial<Pick<Job, 'auto' | 'publish' | 'publishAt' | 'retry' | 'slotKey'>> = {},
 ): Job => {
   const job: Job = {
     id: randomUUID().slice(0, 8),
@@ -281,12 +282,18 @@ export const cancelJob = (id: string): Job | undefined => {
 
 /** Un vídeo programado se reintenta una vez; si vuelve a fallar se avisa por Telegram. */
 const retryAuto = (job: Job): void => {
-  if (slotTaken(job.publishAt)) return
+  if (slotTaken(job.slotKey)) return
   if (job.retry) {
     void notify(`AutoTube: no se pudo crear el vídeo "${job.input.topic}".\n${job.error ?? ''}`)
     return
   }
-  createJob(job.input, { auto: true, publish: job.publish, publishAt: job.publishAt, retry: true })
+  createJob(job.input, {
+    auto: true,
+    publish: job.publish,
+    publishAt: job.publishAt,
+    retry: true,
+    slotKey: job.slotKey,
+  })
 }
 
 const runJob = async (job: Job): Promise<void> => {

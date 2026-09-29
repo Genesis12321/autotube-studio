@@ -34,9 +34,9 @@ const DEFAULT: Schedule = {
     { id: 'short-tarde', time: '14:30', format: 'vertical', targetDuration: 60, enabled: true },
     { id: 'largo-noche', time: '20:00', format: 'horizontal', targetDuration: 480, enabled: true },
     { id: 'short-noche', time: '21:30', format: 'vertical', targetDuration: 60, enabled: true },
-    /** Shorts propios de TikTok: se crean para descargarlos a mano, nunca van a YouTube. */
-    { id: 'tiktok-tarde', time: '16:00', format: 'vertical', targetDuration: 60, enabled: true, youtube: false },
-    { id: 'tiktok-noche', time: '19:00', format: 'vertical', targetDuration: 60, enabled: true, youtube: false },
+    /** Shorts propios de TikTok: se suben a las 17:55 solo para no perderlos; se borran a mano. */
+    { id: 'tiktok-1', time: '17:55', format: 'vertical', targetDuration: 60, enabled: true },
+    { id: 'tiktok-2', time: '17:55', format: 'vertical', targetDuration: 60, enabled: true },
   ],
 }
 
@@ -128,8 +128,12 @@ const nextPublish = (slot: ScheduleSlot, now: Date): Date => {
   return zonedTime(tomorrow.toISOString().slice(0, 10), slot.time)
 }
 
+const slotKeyFor = (slot: ScheduleSlot, publishAt: Date): string =>
+  `${slot.id}@${localDay(publishAt)}`
+
 const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
-  if (slotTaken(publishAt.toISOString())) return
+  const slotKey = slotKeyFor(slot, publishAt)
+  if (slotTaken(slotKey)) return
   const toYoutube = schedule.autoPublish && slot.youtube !== false
   const topic = await suggestTopic(usedTopics(), isUsedTopic)
   await markTopicUsed(topic)
@@ -144,8 +148,8 @@ const launch = async (slot: ScheduleSlot, publishAt: Date): Promise<void> => {
     {
       auto: true,
       publish: toYoutube ? schedule.privacy : undefined,
-      /** La hora marca la franja aunque el vídeo no se suba: así no se repite tras un reinicio. */
       publishAt: publishAt.toISOString(),
+      slotKey,
     },
   )
   console.log(`[schedule] "${topic}" → ${toYoutube ? 'publicación' : 'solo biblioteca'} ${publishAt.toISOString()}`)
@@ -171,9 +175,7 @@ const slotsOfDay = (now: Date): { slot: ScheduleSlot; publishAt: Date }[] => {
 const skipTodayAfterDeploy = (): void => {
   const now = new Date()
   if (!freshDisk || listJobs().length > 0 || localNow().time < '00:30') return
-  for (const { slot, publishAt } of slotsOfDay(now)) {
-    fired.add(`${slot.id}@${publishAt.toISOString().slice(0, 13)}`)
-  }
+  for (const { slot, publishAt } of slotsOfDay(now)) fired.add(slotKeyFor(slot, publishAt))
   void save()
   void notify('AutoTube: la tanda de hoy ya estaba hecha antes de la actualización, así que no se repite. Mañana sigue como siempre.')
 }
@@ -185,7 +187,7 @@ const tick = (): void => {
 
   let first = true
   for (const { slot, publishAt } of pending) {
-    const key = `${slot.id}@${publishAt.toISOString().slice(0, 13)}`
+    const key = slotKeyFor(slot, publishAt)
     if (fired.has(key)) continue
     fired.add(key)
     void save()
