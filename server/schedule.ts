@@ -169,15 +169,46 @@ const slotsOfDay = (now: Date): { slot: ScheduleSlot; publishAt: Date }[] => {
 }
 
 /**
- * Tras un despliegue la biblioteca aparece vacía aunque los vídeos del día ya estén subidos:
- * sin este freno el programador repetiría la tanda y YouTube acabaría con vídeos duplicados.
+ * Franjas ya subidas a YouTube (`slotId@AAAA-MM-DD`). Se guardan en una variable de entorno
+ * del propio servicio de Render porque el disco se borra en cada reinicio.
  */
-const skipTodayAfterDeploy = (): void => {
-  const now = new Date()
-  if (!freshDisk || listJobs().length > 0 || localNow().time < '00:30') return
-  for (const { slot, publishAt } of slotsOfDay(now)) fired.add(slotKeyFor(slot, publishAt))
+const UPLOADED_VAR = 'AUTOTUBE_UPLOADED_SLOTS'
+
+const uploadedSlots = (): string[] =>
+  (process.env[UPLOADED_VAR] ?? '').split(',').filter(Boolean)
+
+const rememberUploaded = async (slotKey: string): Promise<void> => {
+  const yesterday = localDay(new Date(Date.now() - 86_400_000))
+  const keys = [...new Set([...uploadedSlots(), slotKey])].filter((key) => key.split('@')[1] >= yesterday)
+  process.env[UPLOADED_VAR] = keys.join(',')
+  const apiKey = process.env.RENDER_API_KEY
+  const service = process.env.RENDER_SERVICE_ID
+  if (!apiKey || !service) return
+  const res = await fetch(`https://api.render.com/v1/services/${service}/env-vars/${UPLOADED_VAR}`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ value: process.env[UPLOADED_VAR] }),
+  })
+  if (!res.ok) console.warn('[schedule] no se pudo guardar la franja subida', res.status)
+}
+
+/**
+ * Tras un reinicio la biblioteca aparece vacía: solo se da por hecha la franja que ya está
+ * subida a YouTube; las demás del día se vuelven a crear si aún llegan a su hora.
+ */
+const restoreTodayAfterRestart = (): void => {
+  if (!freshDisk) return
+  const uploaded = new Set(uploadedSlots())
+  const missing: string[] = []
+  for (const { slot, publishAt } of slotsOfDay(new Date())) {
+    const key = slotKeyFor(slot, publishAt)
+    if (uploaded.has(key)) fired.add(key)
+    else if (localNow().time >= '00:30') missing.push(slot.time)
+  }
   void save()
-  void notify('AutoTube: la tanda de hoy ya estaba hecha antes de la actualización, así que no se repite. Mañana sigue como siempre.')
+  if (missing.length > 0) {
+    void notify(`AutoTube: el servidor se reinició y se vuelven a crear los vídeos de hoy que faltaban (${missing.join(', ')}).`)
+  }
 }
 
 const tick = (): void => {
@@ -267,6 +298,7 @@ const autoUpload = async (job: Job): Promise<void> => {
           : undefined,
     })
     setYoutubeId(job.id, id)
+    if (job.slotKey) await rememberUploaded(job.slotKey).catch((err) => console.warn('[schedule]', (err as Error).message))
   } catch (err) {
     const message = (err as Error).message
     setUploadError(job.id, message)
@@ -290,7 +322,7 @@ export const startScheduler = (): void => {
     uploading.add(job.id)
     void autoUpload(job).finally(() => uploading.delete(job.id))
   })
-  skipTodayAfterDeploy()
+  restoreTodayAfterRestart()
   setInterval(tick, 30_000).unref()
   setInterval(() => void watchYoutube(), 3_600_000).unref()
   tick()

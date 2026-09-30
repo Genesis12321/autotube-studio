@@ -40,4 +40,5 @@ COPY --chown=user . .
 RUN npm run build
 
 EXPOSE 7860
-CMD ["npm", "start"]
+# Sin npm ni el proceso lanzador de tsx: cada MB cuenta en los 512 MB del plan gratis.
+CMD ["node", "--import", "tsx", "server/index.ts"]

@@ -153,7 +153,7 @@ export const muxVoice = async (
 ): Promise<void> => {
   const mix = [
     '[1:a]asplit=2[voice][key]',
-    '[2:a]aloop=loop=-1:size=2e9,volume=0.16,afade=t=in:st=0:d=2[bed]',
+    '[2:a]volume=0.16,afade=t=in:st=0:d=2[bed]',
     '[bed][key]sidechaincompress=threshold=0.03:ratio=12:attack=20:release=400[duck]',
     '[voice][duck]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]',
   ].join(';')
@@ -161,7 +161,8 @@ export const muxVoice = async (
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', videoFile, '-i', audioFile,
-    ...(musicFile ? ['-i', musicFile] : []),
+    /** El bucle se hace al leer el fichero: `aloop` guardaría toda la canción en memoria. */
+    ...(musicFile ? ['-stream_loop', '-1', '-i', musicFile] : []),
     ...(musicFile ? ['-filter_complex', mix, '-map', '0:v:0', '-map', '[a]'] : ['-map', '0:v:0', '-map', '1:a:0']),
     '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k',
     '-shortest', '-movflags', '+faststart',
