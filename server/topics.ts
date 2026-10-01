@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DATA_DIR } from './pipeline'
 import { ensureDir } from './render'
+import { readRenderVar, writeRenderVar } from './renderEnv'
 
 /** Casos ya publicados en el canal: la IA no puede volver a proponerlos. */
 const SEED = [
@@ -60,7 +61,19 @@ const COMMON = new Set([
 ])
 
 const FILE = path.join(DATA_DIR, 'used-topics.json')
+/** Copia fuera del disco para que un reinicio no haga olvidar los casos ya publicados. */
+const USED_VAR = 'AUTOTUBE_USED_TOPICS'
+const KEEP = 600
 let used: string[] = [...SEED]
+
+const parseList = (raw: string): string[] => {
+  try {
+    const list = JSON.parse(raw) as unknown
+    return Array.isArray(list) ? list.filter((t): t is string => typeof t === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 const tokens = (topic: string): string[] =>
   topic
@@ -72,12 +85,9 @@ const tokens = (topic: string): string[] =>
     .filter((w) => w.length > 3 && !COMMON.has(w))
 
 export const loadUsedTopics = async (): Promise<void> => {
-  try {
-    const saved = JSON.parse(await readFile(FILE, 'utf8')) as string[]
-    used = [...new Set([...SEED, ...saved])]
-  } catch {
-    used = [...SEED]
-  }
+  const saved = parseList(await readFile(FILE, 'utf8').catch(() => '[]'))
+  const remote = parseList(await readRenderVar(USED_VAR))
+  used = [...new Set([...SEED, ...remote, ...saved])]
 }
 
 export const usedTopics = (): string[] => used
@@ -89,12 +99,24 @@ const CASE_KEYS = new Set([
   'bermudas', 'hacha', 'orleans', 'alcasser', 'angles', 'somerton', 'tamam', 'shud',
 ])
 
+/** Nombres propios del título (palabras en mayúscula que no abren la frase): Sodder, Isdal, Yuba... */
+const properNouns = (topic: string): string[] =>
+  topic
+    .split(/[\s:,.;!?¿¡"'()]+/)
+    .slice(1)
+    .filter((w) => /^\p{Lu}/u.test(w))
+    .flatMap(tokens)
+
 /** Repetido si comparte un nombre propio del caso o al menos dos palabras clave con un título ya usado. */
 export const isUsedTopic = (topic: string): boolean => {
   const next = new Set(tokens(topic))
   if (next.size === 0) return true
   for (const word of next) if (CASE_KEYS.has(word)) return true
-  return used.some((old) => tokens(old).filter((w) => next.has(w)).length >= 2)
+  const names = properNouns(topic)
+  return used.some((old) => {
+    const words = tokens(old)
+    return names.some((n) => words.includes(n)) || words.filter((w) => next.has(w)).length >= 2
+  })
 }
 
 export const markTopicUsed = async (topic: string): Promise<void> => {
@@ -102,4 +124,9 @@ export const markTopicUsed = async (topic: string): Promise<void> => {
   used.push(topic)
   await ensureDir(DATA_DIR)
   await writeFile(FILE, JSON.stringify(used, null, 2), 'utf8')
+  const remote = parseList(await readRenderVar(USED_VAR))
+  const merged = [...new Set([...remote, topic])].filter((t) => !SEED.includes(t)).slice(-KEEP)
+  await writeRenderVar(USED_VAR, JSON.stringify(merged)).catch((err) =>
+    console.warn('[topics]', (err as Error).message),
+  )
 }

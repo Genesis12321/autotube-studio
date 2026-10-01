@@ -330,6 +330,7 @@ const runJob = async (job: Job): Promise<void> => {
     const voiceTrack = path.join(workDir, 'voiceover.wav')
     await buildVoiceTrack(audioFiles, workDir, voiceTrack)
     await encodeMp3(voiceTrack, path.join(workDir, 'voiceover.mp3'))
+    await Promise.all(audioFiles.map((file) => rm(file, { force: true })))
     job.audioUrl = `/media/${job.id}/voiceover.mp3`
     finishStep(job, 'voice', `Locución lista (${job.input.voice})`)
 
@@ -440,6 +441,12 @@ const runJob = async (job: Job): Promise<void> => {
         fadeOut: scene.index === scenes.length - 1,
       })
       sceneFiles.push(file)
+      /** El disco efímero es pequeño: cada recurso se borra en cuanto su escena está compuesta. */
+      await Promise.all(
+        [images[scene.index], imagesB[scene.index], clips[scene.index], clipsB[scene.index]]
+          .filter((f): f is string => Boolean(f))
+          .map((f) => rm(f, { force: true })),
+      )
       update(job, 'render', {
         status: 'running',
         progress: Math.round(((scene.index + 1) / scenes.length) * 80),

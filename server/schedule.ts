@@ -16,6 +16,7 @@ import {
 } from './pipeline'
 import { status as tiktokStatus, uploadVideo as uploadTiktok } from './tiktok'
 import { ensureDir } from './render'
+import { readRenderVar, writeRenderVar } from './renderEnv'
 import { suggestTopic } from './script'
 import { isUsedTopic, markTopicUsed, usedTopics } from './topics'
 import type { Job, Schedule, ScheduleSlot } from './types'
@@ -174,31 +175,22 @@ const slotsOfDay = (now: Date): { slot: ScheduleSlot; publishAt: Date }[] => {
  */
 const UPLOADED_VAR = 'AUTOTUBE_UPLOADED_SLOTS'
 
-const uploadedSlots = (): string[] =>
-  (process.env[UPLOADED_VAR] ?? '').split(',').filter(Boolean)
+const uploadedSlots = async (): Promise<string[]> =>
+  (await readRenderVar(UPLOADED_VAR)).split(',').filter(Boolean)
 
 const rememberUploaded = async (slotKey: string): Promise<void> => {
   const yesterday = localDay(new Date(Date.now() - 86_400_000))
-  const keys = [...new Set([...uploadedSlots(), slotKey])].filter((key) => key.split('@')[1] >= yesterday)
-  process.env[UPLOADED_VAR] = keys.join(',')
-  const apiKey = process.env.RENDER_API_KEY
-  const service = process.env.RENDER_SERVICE_ID
-  if (!apiKey || !service) return
-  const res = await fetch(`https://api.render.com/v1/services/${service}/env-vars/${UPLOADED_VAR}`, {
-    method: 'PUT',
-    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ value: process.env[UPLOADED_VAR] }),
-  })
-  if (!res.ok) console.warn('[schedule] no se pudo guardar la franja subida', res.status)
+  const keys = [...new Set([...(await uploadedSlots()), slotKey])].filter((key) => key.split('@')[1] >= yesterday)
+  await writeRenderVar(UPLOADED_VAR, keys.join(','))
 }
 
 /**
  * Tras un reinicio la biblioteca aparece vacía: solo se da por hecha la franja que ya está
  * subida a YouTube; las demás del día se vuelven a crear si aún llegan a su hora.
  */
-const restoreTodayAfterRestart = (): void => {
+const restoreTodayAfterRestart = async (): Promise<void> => {
   if (!freshDisk) return
-  const uploaded = new Set(uploadedSlots())
+  const uploaded = new Set(await uploadedSlots())
   const missing: string[] = []
   for (const { slot, publishAt } of slotsOfDay(new Date())) {
     const key = slotKeyFor(slot, publishAt)
@@ -284,6 +276,10 @@ const autoUpload = async (job: Job): Promise<void> => {
     return
   }
   try {
+    if (job.slotKey && (await uploadedSlots()).includes(job.slotKey)) {
+      setUploadError(job.id, 'Esta franja ya estaba subida a YouTube')
+      return
+    }
     const dir = path.join(DATA_DIR, 'media', job.id)
     const id = await uploadVideo({
       videoFile: path.join(dir, 'final.mp4'),
@@ -315,14 +311,14 @@ const watchYoutube = async (): Promise<void> => {
   )
 }
 
-export const startScheduler = (): void => {
+export const startScheduler = async (): Promise<void> => {
   const uploading = new Set<string>()
   bus.on('job', (job: Job) => {
     if (!job.publish || job.status !== 'done' || job.youtubeId || uploading.has(job.id)) return
     uploading.add(job.id)
     void autoUpload(job).finally(() => uploading.delete(job.id))
   })
-  restoreTodayAfterRestart()
+  await restoreTodayAfterRestart()
   setInterval(tick, 30_000).unref()
   setInterval(() => void watchYoutube(), 3_600_000).unref()
   tick()

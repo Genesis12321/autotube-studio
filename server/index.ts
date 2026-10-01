@@ -269,7 +269,7 @@ await loadTiktokTokens(DATA_DIR)
 await loadSchedule()
 await loadUsedTopics()
 await loadNotify(DATA_DIR)
-startScheduler()
+await startScheduler()
 
 /** La biblioteca se limpia sola cada hora: solo se conservan los vídeos de las últimas 24 h. */
 const purge = () => void purgeOldJobs().catch((err) => console.warn('[purge]', (err as Error).message))
