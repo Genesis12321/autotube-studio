@@ -23,7 +23,7 @@ import {
 import { privacy as privacyPage, terms as termsPage } from './legal'
 import { loadNotify } from './notify'
 import { piperModelFor } from './render'
-import { getSchedule, loadSchedule, setSchedule, startScheduler } from './schedule'
+import { daySlots, getSchedule, loadSchedule, redoSlots, setSchedule, startScheduler } from './schedule'
 import { loadUsedTopics, markTopicUsed } from './topics'
 import type { JobInput, Schedule, VideoFormat, VoiceId } from './types'
 import {
@@ -154,6 +154,25 @@ app.put('/api/schedule', async (req, res) => {
   const body = req.body as Partial<Schedule>
   if (body.privacy && !PRIVACIES.includes(body.privacy)) return res.status(400).json({ error: 'privacy inválida' })
   res.json(await setSchedule(body))
+})
+
+app.get('/api/schedule/day', async (req, res) => {
+  try {
+    res.json(await daySlots(String(req.query.day ?? '')))
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message })
+  }
+})
+
+app.post('/api/schedule/redo', async (req, res) => {
+  const body = req.body as { day?: string; slots?: unknown }
+  const ids = Array.isArray(body.slots) ? body.slots.filter((id): id is string => typeof id === 'string') : []
+  if (ids.length === 0) return res.status(400).json({ error: 'Elige al menos un vídeo' })
+  try {
+    res.json({ launched: await redoSlots(String(body.day ?? ''), ids) })
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message })
+  }
 })
 
 app.get('/api/youtube/status', (_req, res) => {

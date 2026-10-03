@@ -86,17 +86,26 @@ export const setSchedule = async (patch: Partial<Schedule>): Promise<Schedule> =
   return schedule
 }
 
-const formatter = (): Intl.DateTimeFormat =>
-  new Intl.DateTimeFormat('sv-SE', {
-    timeZone: schedule.timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
+/** Crear un `Intl.DateTimeFormat` en cada consulta dispara la memoria nativa: se reutiliza por zona. */
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+const formatter = (): Intl.DateTimeFormat => {
+  let format = formatters.get(schedule.timezone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: schedule.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    formatters.set(schedule.timezone, format)
+  }
+  return format
+}
 
 /** Hora local (`HH:MM`) y día (`AAAA-MM-DD`) en la zona configurada, sin dependencias externas. */
 const localNow = (): { day: string; time: string } => {
@@ -201,6 +210,75 @@ const restoreTodayAfterRestart = async (): Promise<void> => {
   if (missing.length > 0) {
     void notify(`AutoTube: el servidor se reinició y se vuelven a crear los vídeos de hoy que faltaban (${missing.join(', ')}).`)
   }
+}
+
+export type DaySlot = {
+  id: string
+  time: string
+  format: ScheduleSlot['format']
+  targetDuration: number
+  key: string
+  uploaded: boolean
+  job?: Pick<Job, 'id' | 'status' | 'title' | 'youtubeId' | 'uploadError'>
+}
+
+/** Solo se guarda el rastro de subidas de hoy y ayer. */
+const recentDays = (): string[] => {
+  const today = localNow().day
+  return [today, localDay(new Date(zonedTime(today, '12:00').getTime() - 86_400_000))]
+}
+
+/** Franjas que tocaban un día, con lo que consta subido a YouTube y el vídeo que las cubre. */
+export const daySlots = async (day: string): Promise<DaySlot[]> => {
+  if (!recentDays().includes(day)) throw new Error('Solo se pueden revisar hoy y ayer')
+  const uploaded = new Set(await uploadedSlots())
+  const jobs = listJobs()
+  return schedule.slots
+    .filter((slot) => slot.enabled)
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .map((slot) => {
+      const key = `${slot.id}@${day}`
+      const job = jobs.find((j) => j.slotKey === key && j.status !== 'error' && j.status !== 'canceled')
+      return {
+        id: slot.id,
+        time: slot.time,
+        format: slot.format,
+        targetDuration: slot.targetDuration,
+        key,
+        uploaded: uploaded.has(key),
+        job: job && {
+          id: job.id,
+          status: job.status,
+          title: job.title,
+          youtubeId: job.youtubeId,
+          uploadError: job.uploadError,
+        },
+      }
+    })
+}
+
+/**
+ * Vuelve a crear las franjas elegidas por el usuario. Si su hora ya pasó, el vídeo se publica en
+ * cuanto termina. Una franja marcada como subida se olvida para que la nueva sí pueda subirse.
+ */
+export const redoSlots = async (day: string, ids: string[]): Promise<string[]> => {
+  const slots = await daySlots(day)
+  const chosen = slots.filter((slot) => ids.includes(slot.id) && !slot.job)
+  const forget = new Set(chosen.filter((slot) => slot.uploaded).map((slot) => slot.key))
+  if (forget.size > 0) {
+    const keep = (await uploadedSlots()).filter((key) => !forget.has(key))
+    await writeRenderVar(UPLOADED_VAR, keep.join(','))
+  }
+  for (const { id, time, key } of chosen) {
+    const slot = schedule.slots.find((s) => s.id === id)
+    if (!slot) continue
+    fired.add(key)
+    chain = chain.then(() =>
+      launch(slot, zonedTime(day, time)).catch((err) => console.warn('[schedule]', (err as Error).message)),
+    )
+  }
+  void save()
+  return chosen.map((slot) => slot.key)
 }
 
 const tick = (): void => {

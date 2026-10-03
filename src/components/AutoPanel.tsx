@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Loader2, MonitorPlay, Music2 } from 'lucide-react'
+import { CalendarClock, LifeBuoy, Loader2, MonitorPlay, Music2 } from 'lucide-react'
 import {
   disconnectTiktok,
   disconnectYoutube,
+  getDaySlots,
   getSchedule,
+  redoSlots,
   saveSchedule,
   tiktokStatus,
   youtubeStatus,
+  type DaySlot,
   type Privacy,
   type Schedule,
   type ScheduleSlot,
@@ -21,6 +24,130 @@ const PRIVACY_LABEL: Record<Privacy, string> = {
 }
 
 type Props = { onMessage: (text: string, kind?: 'ok' | 'error' | 'info') => void }
+
+const JOB_LABEL: Record<NonNullable<DaySlot['job']>['status'], string> = {
+  queued: 'En cola',
+  running: 'Creándose',
+  done: 'Hecho',
+  error: 'Falló',
+  canceled: 'Cancelado',
+}
+
+/** `AAAA-MM-DD` de hoy (0) o ayer (1) en la zona del programador. */
+const dayIn = (timezone: string, daysAgo: number): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date(Date.now() - daysAgo * 86_400_000))
+
+const slotState = (slot: DaySlot): string => {
+  if (slot.job?.youtubeId) return 'Subido'
+  if (slot.job) return slot.job.uploadError ? `Sin subir: ${slot.job.uploadError}` : JOB_LABEL[slot.job.status]
+  return slot.uploaded ? 'Consta como subido' : 'No está'
+}
+
+const MissingVideos = ({ timezone, onMessage }: { timezone: string } & Props) => {
+  const [open, setOpen] = useState(false)
+  const [daysAgo, setDaysAgo] = useState(0)
+  const [slots, setSlots] = useState<DaySlot[] | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const day = dayIn(timezone, daysAgo)
+
+  const show = (ago: number) => {
+    setOpen(true)
+    setDaysAgo(ago)
+    setSlots(null)
+    setPicked([])
+    void getDaySlots(dayIn(timezone, ago))
+      .then(setSlots)
+      .catch((err: Error) => onMessage(err.message, 'error'))
+  }
+
+  const toggle = (id: string, on: boolean) =>
+    setPicked((prev) => (on ? [...prev, id] : prev.filter((p) => p !== id)))
+
+  const redo = async () => {
+    const already = slots?.filter((s) => picked.includes(s.id) && s.uploaded) ?? []
+    if (
+      already.length > 0 &&
+      !window.confirm(
+        `${already.map((s) => s.time).join(', ')} ya consta como subido. Rehazlo solo si no está en YouTube Studio. ¿Seguir?`,
+      )
+    )
+      return
+    setBusy(true)
+    try {
+      const launched = await redoSlots(day, picked)
+      onMessage(`Se están creando ${launched.length} vídeo(s); se suben solos al terminar`, 'ok')
+      setSlots(await getDaySlots(day))
+      setPicked([])
+    } catch (err) {
+      onMessage((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="btn-primary w-full" onClick={() => show(0)}>
+        <LifeBuoy size={16} /> ¿Te falta algún vídeo?
+      </button>
+    )
+  }
+
+  return (
+    <section className="card space-y-3">
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <LifeBuoy size={16} className="text-brand-400" />
+          <p className="text-sm font-semibold">¿Te falta algún vídeo?</p>
+        </div>
+        <button type="button" className="text-xs text-amber-100/60" onClick={() => setOpen(false)}>
+          Cerrar
+        </button>
+      </header>
+      <div className="flex gap-2">
+        {['Hoy', 'Ayer'].map((label, i) => (
+          <button
+            key={label}
+            type="button"
+            className={`rounded-lg px-3 py-1.5 text-xs ${daysAgo === i ? 'bg-brand-500 text-ink-900' : 'bg-ink-600'}`}
+            onClick={() => show(i)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {!slots ? (
+        <p className="text-xs text-amber-100/45">Revisando...</p>
+      ) : (
+        <ul className="space-y-2">
+          {slots.map((slot) => (
+            <li key={slot.id}>
+              <label className="flex items-center gap-3 rounded-xl bg-ink-700/60 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  disabled={Boolean(slot.job)}
+                  checked={picked.includes(slot.id)}
+                  onChange={(e) => toggle(slot.id, e.target.checked)}
+                />
+                <span className="font-semibold">{slot.time}</span>
+                <span className="text-xs text-amber-100/60">
+                  {slot.format === 'vertical' ? 'Short' : 'Largo'} · {slotState(slot)}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[11px] text-amber-100/45">
+        Marca los que no veas en YouTube Studio. Si su hora ya pasó, se publican en cuanto terminen.
+      </p>
+      <button type="button" className="btn-primary w-full" disabled={busy || picked.length === 0} onClick={redo}>
+        {busy ? <Loader2 size={16} className="animate-spin" /> : <LifeBuoy size={16} />} Rehacer y subir
+      </button>
+    </section>
+  )
+}
 
 export const AutoPanel = ({ onMessage }: Props) => {
   const [schedule, setSchedule] = useState<Schedule | null>(null)
@@ -56,6 +183,8 @@ export const AutoPanel = ({ onMessage }: Props) => {
 
   return (
     <div className="space-y-4">
+      <MissingVideos timezone={schedule.timezone} onMessage={onMessage} />
+
       <section className="card space-y-3">
         <header className="flex items-center gap-2">
           <MonitorPlay size={16} className="text-brand-400" />

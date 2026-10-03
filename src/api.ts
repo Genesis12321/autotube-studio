@@ -120,6 +120,32 @@ export const saveSchedule = async (schedule: Schedule): Promise<Schedule> => {
   return (await res.json()) as Schedule
 }
 
+export type DaySlot = {
+  id: string
+  time: string
+  format: ScheduleSlot['format']
+  targetDuration: number
+  key: string
+  uploaded: boolean
+  job?: Pick<Job, 'id' | 'status' | 'title' | 'youtubeId' | 'uploadError'>
+}
+
+export const getDaySlots = async (day: string): Promise<DaySlot[]> => {
+  const res = await fetch(`/api/schedule/day?day=${encodeURIComponent(day)}`)
+  if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? 'No se pudo revisar el día')
+  return (await res.json()) as DaySlot[]
+}
+
+export const redoSlots = async (day: string, slots: string[]): Promise<string[]> => {
+  const res = await fetch('/api/schedule/redo', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ day, slots }),
+  })
+  if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? 'No se pudieron rehacer')
+  return ((await res.json()) as { launched: string[] }).launched
+}
+
 export type TiktokStatus = { configured: boolean; connected: boolean; user?: string }
 
 export const tiktokStatus = async (): Promise<TiktokStatus> => {
